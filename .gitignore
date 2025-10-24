@@ -1,0 +1,33 @@
+# Бинарные файлы
+bin/
+main
+auth-service
+
+# Файлы Go
+*.exe
+*.test
+*.prof
+
+# Файлы зависимостей
+vendor/
+go.sum
+
+# Файлы окружения
+.env
+.env.local
+
+# Логи
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
