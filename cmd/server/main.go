@@ -77,11 +77,12 @@ func main() {
 	{
 		auth.POST("/register", authHandler.Register)
 		auth.POST("/login", authHandler.Login)
+		auth.POST("/verifyEmail", authHandler.VerifyEmail) // 🔥 Роут для проверки кода
 		auth.GET("/refresh", authHandler.Refresh)
 		auth.POST("/logout", authHandler.Logout)
 	}
 
-	// Защищенные маршруты (требуют авторизации)
+	// Защищенные маршруты (требуют авторизации) - ТОЛЬКО ОДИН РАЗ!
 	protected := router.Group("/auth")
 	protected.Use(middleware.AuthMiddleware())
 	{

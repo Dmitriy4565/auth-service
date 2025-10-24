@@ -19,12 +19,12 @@ func NewAuthHandler(authService *service.AuthService) *AuthHandler {
 
 // Register обрабатывает регистрацию пользователя
 // @Summary Регистрация пользователя
-// @Description Создает нового пользователя и возвращает токены в cookies
+// @Description Создает нового пользователя и отправляет код подтверждения на почту
 // @Tags auth
 // @Accept json
 // @Produce json
 // @Param request body models.RegisterRequest true "Данные для регистрации"
-// @Success 200 {object} models.TokenResponse "Токены установлены в cookies"
+// @Success 200 {object} models.RegisterResponse "Код отправлен на почту"
 // @Failure 400 {object} gin.H "Ошибка валидации данных"
 // @Router /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -37,8 +37,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Регистрируем пользователя
-	user, err := h.authService.Register(&registerReq)
+	// Регистрируем пользователя и отправляем код на почту
+	response, err := h.authService.Register(&registerReq)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),
@@ -46,31 +46,17 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Генерируем токены для нового пользователя
-	tokens, err := h.authService.GenerateTokensForUser(user)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Ошибка генерации токенов",
-		})
-		return
-	}
-
-	// Устанавливаем токены в httpOnly cookies
-	h.setAuthCookies(c, tokens.AccessToken, tokens.RefreshToken)
-
-	c.JSON(http.StatusOK, models.TokenResponse{
-		Message: "Пользователь успешно зарегистрирован",
-	})
+	c.JSON(http.StatusOK, response)
 }
 
 // Login обрабатывает вход пользователя
 // @Summary Аутентификация пользователя
-// @Description Выполняет вход пользователя и возвращает токены в cookies
+// @Description Выполняет вход пользователя и отправляет код подтверждения на почту
 // @Tags auth
 // @Accept json
 // @Produce json
 // @Param request body models.LoginRequest true "Данные для входа"
-// @Success 200 {object} models.TokenResponse "Токены установлены в cookies"
+// @Success 200 {object} models.LoginResponse "Код отправлен на почту"
 // @Failure 400 {object} gin.H "Ошибка валидации данных"
 // @Failure 401 {object} gin.H "Неверные учетные данные"
 // @Router /auth/login [post]
@@ -84,8 +70,41 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// Аутентифицируем пользователя
-	tokens, err := h.authService.Login(&loginReq)
+	// Аутентифицируем пользователя и отправляем код на почту
+	response, err := h.authService.Login(&loginReq)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// VerifyEmail проверяет код подтверждения по UUID
+// @Summary Проверка кода подтверждения
+// @Description Проверяет код по UUID и выдает токены
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body models.VerifyRequest true "UUID и код подтверждения"
+// @Success 200 {object} models.VerifyResponse "Токены установлены в cookies"
+// @Failure 400 {object} gin.H "Ошибка валидации данных"
+// @Failure 401 {object} gin.H "Неверный код"
+// @Router /auth/verifyEmail [post]
+func (h *AuthHandler) VerifyEmail(c *gin.Context) {
+	var verifyReq models.VerifyRequest
+
+	if err := c.ShouldBindJSON(&verifyReq); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Неверные данные: " + err.Error(),
+		})
+		return
+	}
+
+	// Проверяем код по UUID и выдаем токены
+	response, err := h.authService.VerifyCode(&verifyReq)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": err.Error(),
@@ -94,11 +113,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	// Устанавливаем токены в httpOnly cookies
-	h.setAuthCookies(c, tokens.AccessToken, tokens.RefreshToken)
+	h.setAuthCookies(c, response.AccessToken, response.RefreshToken)
 
-	c.JSON(http.StatusOK, models.TokenResponse{
-		Message: "Успешный вход в систему",
-	})
+	c.JSON(http.StatusOK, response)
 }
 
 // Profile возвращает профиль пользователя

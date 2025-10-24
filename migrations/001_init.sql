@@ -35,8 +35,22 @@ CREATE TABLE two_factor_codes (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS verification_sessions (
+    id SERIAL PRIMARY KEY,
+    uuid VARCHAR(36) UNIQUE NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    code VARCHAR(10) NOT NULL,
+    operation VARCHAR(20) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    used BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Индексы
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_sessions_refresh_token ON sessions(refresh_token);
 CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
 CREATE INDEX idx_two_factor_codes_user_id ON two_factor_codes(user_id);
+CREATE INDEX IF NOT EXISTS idx_verification_sessions_uuid ON verification_sessions(uuid);
+CREATE INDEX IF NOT EXISTS idx_verification_sessions_email ON verification_sessions(email);
+CREATE INDEX IF NOT EXISTS idx_verification_sessions_expires_at ON verification_sessions(expires_at);

@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-// User представляет модель пользователя в системе
+// User - основная модель пользователя (НЕ МЕНЯЕМ!)
 type User struct {
 	ID                uint      `gorm:"primaryKey" json:"id"`
 	Name              string    `gorm:"size:100;not null" json:"name"`
@@ -19,6 +19,7 @@ type User struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
+// Session - модель сессии для refresh токенов
 type Session struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	UserID       uint      `gorm:"not null" json:"user_id"`
@@ -27,10 +28,23 @@ type Session struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// TwoFactorCode - модель для кодов двухфакторной аутентификации
 type TwoFactorCode struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	UserID    uint      `gorm:"not null" json:"user_id"`
 	Code      string    `gorm:"size:10;not null" json:"code"`
+	ExpiresAt time.Time `gorm:"not null" json:"expires_at"`
+	Used      bool      `gorm:"default:false" json:"used"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// 🔥 VerificationSession - НОВАЯ модель для сессий верификации
+type VerificationSession struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	UUID      string    `gorm:"size:36;uniqueIndex;not null" json:"uuid"`
+	Email     string    `gorm:"size:255;not null" json:"email"`
+	Code      string    `gorm:"size:10;not null" json:"code"`
+	Operation string    `gorm:"size:20;not null" json:"operation"` // "register" или "login"
 	ExpiresAt time.Time `gorm:"not null" json:"expires_at"`
 	Used      bool      `gorm:"default:false" json:"used"`
 	CreatedAt time.Time `json:"created_at"`
@@ -47,6 +61,29 @@ type RegisterRequest struct {
 type LoginRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,min=5"`
+}
+
+// 🔥 VerifyRequest - НОВЫЙ DTO для проверки кода
+type VerifyRequest struct {
+	UUID string `json:"uuid" binding:"required"`
+	Code string `json:"code" binding:"required,len=6"`
+}
+
+type RegisterResponse struct {
+	Message string `json:"message"`
+	UUID    string `json:"uuid"` // 🔥 Добавляем UUID в ответ
+}
+
+type LoginResponse struct {
+	Message string `json:"message"`
+	UUID    string `json:"uuid"` // 🔥 Добавляем UUID в ответ
+}
+
+// 🔥 VerifyResponse - НОВЫЙ DTO для ответа верификации
+type VerifyResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	User         *User  `json:"user"`
 }
 
 type ProfileResponse struct {
