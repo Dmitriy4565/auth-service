@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"net/smtp"
 	"os"
-	"strconv"
-	"strings"
+	"time"
 )
 
 type EmailService struct {
@@ -28,34 +27,36 @@ func NewEmailService() *EmailService {
 }
 
 func (s *EmailService) Send2FACode(email, code string) error {
-	fmt.Printf("🎯 ОТПРАВКА 2FA КОДА:\n")
-	fmt.Printf("📧 Кому: %s\n", email)
-	fmt.Printf("🔐 Код: %s\n", code)
-	fmt.Printf("⚙️ SMTP: %s:%s\n", s.host, s.port)
-	fmt.Printf("👤 Auth: %s\n", s.username)
+	fmt.Printf("\n🎯 ОТПРАВКА 2FA КОДА ЧЕРЕЗ YANDEX: %s -> %s\n", code, email)
 
-	// Проверяем настройки
-	if s.host == "" || s.username == "" || s.password == "" {
-		fmt.Printf("❌ SMTP настройки не заполнены!\n")
-		fmt.Printf("   HOST: '%s'\n", s.host)
-		fmt.Printf("   USER: '%s'\n", s.username)
-		fmt.Printf("   PASS: '%s'\n", "***") // не показываем пароль
-		return fmt.Errorf("SMTP настройки не заполнены")
-	}
+	// ЗАПУСКАЕМ В ОТДЕЛЬНОЙ ГОРУТИНЕ - НЕ БЛОКИРУЕМ ОСНОВНОЙ ПОТОК
+	go s.send2FACodeAsync(email, code)
 
-	// Аутентификация
-	auth := smtp.PlainAuth("", s.username, s.password, s.host)
+	return nil // сразу возвращаем успех
+}
 
-	port, err := strconv.Atoi(s.port)
-	if err != nil || port == 0 {
-		port = 587
-		fmt.Printf("⚙️ Используем порт по умолчанию: %d\n", port)
-	}
+func (s *EmailService) SendResetPasswordEmail(email, resetLink string) error {
+	fmt.Printf("\n🔐 ОТПРАВКА ССЫЛКИ СБРОСА ЧЕРЕЗ YANDEX: %s -> %s\n", email, resetLink)
 
-	// Формируем сообщение
-	subject := "Subject: Код двухфакторной аутентификации\r\n"
-	mime := "MIME-version: 1.0;\r\nContent-Type: text/html; charset=\"UTF-8\";\r\n\r\n"
-	body := fmt.Sprintf(`
+	// ТОЖЕ В ОТДЕЛЬНОЙ ГОРУТИНЕ
+	go s.sendResetPasswordAsync(email, resetLink)
+
+	return nil
+}
+
+// Асинхронные методы (работают в фоне)
+func (s *EmailService) send2FACodeAsync(email, code string) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("❌ Паника при отправке 2FA: %v\n", r)
+		}
+	}()
+
+	start := time.Now()
+	fmt.Printf("📧 [YANDEX] Отправляем 2FA код на %s\n", email)
+
+	// HTML содержимое
+	htmlContent := fmt.Sprintf(`
 		<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
 			<h2 style="color: #1890ff;">Ростелеком Проекты</h2>
 			<h3>Ваш код подтверждения</h3>
@@ -63,44 +64,132 @@ func (s *EmailService) Send2FACode(email, code string) error {
 				%s
 			</div>
 			<p><strong>Код действителен 10 минут</strong></p>
+			<p style="color: #666; font-size: 12px; margin-top: 20px;">
+				Если вы не запрашивали этот код, проигнорируйте это письмо.
+			</p>
 		</div>`, code)
 
-	msg := []byte(subject + mime + body)
+	err := s.sendEmailWithTimeout(
+		email,
+		"Код двухфакторной аутентификации - Ростелеком Проекты",
+		htmlContent,
+	)
 
-	// Пытаемся отправить
-	fmt.Printf("📤 Пытаемся отправить письмо...\n")
-
-	// Пробуем разные способы отправки
-
-	// Способ 1: Обычная отправка
-	err = smtp.SendMail(s.host+":"+strconv.Itoa(port), auth, s.from, []string{email}, msg)
 	if err != nil {
-		fmt.Printf("❌ Способ 1 не сработал: %v\n", err)
+		fmt.Printf("❌ [YANDEX] Ошибка отправки 2FA на %s: %v\n", email, err)
+	} else {
+		fmt.Printf("✅ [YANDEX] Письмо с кодом %s отправлено на %s за %v\n",
+			code, email, time.Since(start))
+	}
+}
 
-		// Способ 2: С TLS
-		fmt.Printf("🔄 Пробуем с TLS...\n")
-		err = s.sendWithTLS(email, msg, auth, port)
-		if err != nil {
-			fmt.Printf("❌ Способ 2 тоже не сработал: %v\n", err)
-			return fmt.Errorf("не удалось отправить email: %v", err)
+func (s *EmailService) sendResetPasswordAsync(email, resetLink string) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("❌ Паника при отправке reset: %v\n", r)
 		}
+	}()
+
+	start := time.Now()
+	fmt.Printf("🔐 [YANDEX] Отправляем reset ссылку на %s\n", email)
+
+	// HTML содержимое
+	htmlContent := fmt.Sprintf(`
+<html>
+<body style="font-family: Arial, sans-serif;">
+    <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd;">
+        <h2 style="color: #1890ff;">Ростелеком Проекты</h2>
+        <h3>Сброс пароля</h3>
+        <p>Для сброса пароля перейдите по ссылке ниже:</p>
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="%s" style="background-color: #1890ff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; display: inline-block;">
+                Сбросить пароль
+            </a>
+        </div>
+        <p><strong>Ссылка действительна 1 час.</strong></p>
+        <p>Если вы не запрашивали сброс пароля, проигнорируйте это письмо.</p>
+        <hr>
+        <p style="color: #666; font-size: 12px;">Это автоматическое сообщение, пожалуйста, не отвечайте на него.</p>
+    </div>
+</body>
+</html>`, resetLink)
+
+	err := s.sendEmailWithTimeout(
+		email,
+		"Сброс пароля - Ростелеком Проекты",
+		htmlContent,
+	)
+
+	if err != nil {
+		fmt.Printf("❌ [YANDEX] Ошибка отправки reset на %s: %v\n", email, err)
+	} else {
+		fmt.Printf("✅ [YANDEX] Ссылка сброса отправлена на %s за %v\n",
+			email, time.Since(start))
+	}
+}
+
+// Отправка с таймаутом
+func (s *EmailService) sendEmailWithTimeout(to, subject, html string) error {
+	// Создаем канал для результата
+	result := make(chan error, 1)
+
+	// Запускаем отправку в отдельной горутине
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				result <- fmt.Errorf("panic: %v", r)
+			}
+		}()
+
+		err := s.sendEmailSMTP(to, subject, html)
+		result <- err
+	}()
+
+	// Ждем с таймаутом 15 секунд
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(15 * time.Second):
+		return fmt.Errorf("таймаут отправки письма")
+	}
+}
+
+// Базовая отправка через Яндекс SMTP
+func (s *EmailService) sendEmailSMTP(to, subject, html string) error {
+	// Проверяем настройки
+	if s.host == "" || s.username == "" || s.password == "" {
+		return fmt.Errorf("SMTP настройки не заполнены")
 	}
 
-	fmt.Printf("✅ Письмо успешно отправлено на %s\n", email)
-	fmt.Printf("📨 Код: %s\n", code)
+	// Аутентификация
+	auth := smtp.PlainAuth("", s.username, s.password, s.host)
+
+	// Формируем сообщение
+	emailSubject := "Subject: " + subject + "\r\n"
+	mime := "MIME-version: 1.0;\r\nContent-Type: text/html; charset=\"UTF-8\";\r\n\r\n"
+	msg := []byte(emailSubject + mime + html)
+
+	fmt.Printf("📤 [YANDEX] Подключаемся к %s:%s...\n", s.host, s.port)
+
+	// Яндекс требует TLS, поэтому используем продвинутую отправку
+	err := s.sendWithTLS(to, msg, auth)
+	if err != nil {
+		return fmt.Errorf("ошибка отправки через Яндекс SMTP: %v", err)
+	}
+
+	fmt.Printf("✅ [YANDEX] Письмо успешно отправлено через Яндекс SMTP\n")
 	return nil
 }
 
-// sendWithTLS - отправка с явным TLS
-func (s *EmailService) sendWithTLS(to string, msg []byte, auth smtp.Auth, port int) error {
+func (s *EmailService) sendWithTLS(to string, msg []byte, auth smtp.Auth) error {
 	// Подключаемся к SMTP серверу
-	client, err := smtp.Dial(s.host + ":" + strconv.Itoa(port))
+	client, err := smtp.Dial(s.host + ":" + s.port)
 	if err != nil {
 		return err
 	}
 	defer client.Close()
 
-	// STARTTLS
+	// STARTTLS (Яндекс требует шифрование)
 	if err = client.StartTLS(&tls.Config{ServerName: s.host}); err != nil {
 		return err
 	}
@@ -133,65 +222,4 @@ func (s *EmailService) sendWithTLS(to string, msg []byte, auth smtp.Auth, port i
 	}
 
 	return client.Quit()
-}
-
-// SendResetPasswordEmail отправляет email для сброса пароля
-func (s *EmailService) SendResetPasswordEmail(email, resetLink string) error {
-	fmt.Printf("🔐 ОТПРАВКА ССЫЛКИ СБРОСА ПАРОЛЯ:\n")
-	fmt.Printf("📧 Кому: %s\n", email)
-	fmt.Printf("🔗 Ссылка: %s\n", resetLink)
-	fmt.Printf("⚙️ SMTP: %s:%s\n", s.host, s.port)
-	fmt.Printf("👤 Auth: %s\n", s.username)
-
-	// Проверяем настройки
-	if s.host == "" || s.username == "" || s.password == "" {
-		fmt.Printf("❌ SMTP настройки не заполнены!\n")
-		return fmt.Errorf("SMTP настройки не заполнены")
-	}
-
-	// Аутентификация
-	auth := smtp.PlainAuth("", s.username, s.password, s.host)
-
-	port, err := strconv.Atoi(s.port)
-	if err != nil || port == 0 {
-		port = 587
-		fmt.Printf("⚙️ Используем порт по умолчанию: %d\n", port)
-	}
-
-	// Текст письма
-	subject := "Subject: Сброс пароля - Ростелеком Проекты\r\n"
-	mime := "MIME-version: 1.0;\r\nContent-Type: text/html; charset=\"UTF-8\";\r\n\r\n"
-	body := fmt.Sprintf(`
-<html>
-<body style="font-family: Arial, sans-serif;">
-    <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd;">
-        <h2 style="color: #1890ff;">Ростелеком Проекты</h2>
-        <h3>Сброс пароля</h3>
-        <p>Для сброса пароля перейдите по ссылке ниже:</p>
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="%s" style="background-color: #1890ff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; display: inline-block;">
-                Сбросить пароль
-            </a>
-        </div>
-        <p><strong>Ссылка действительна 1 час.</strong></p>
-        <p>Если вы не запрашивали сброс пароля, проигнорируйте это письмо.</p>
-        <hr>
-        <p style="color: #666; font-size: 12px;">Это автоматическое сообщение, пожалуйста, не отвечайте на него.</p>
-    </div>
-</body>
-</html>`, resetLink)
-
-	msg := []byte(subject + mime + body)
-
-	// Отправка почты
-	fmt.Printf("📤 Пытаемся отправить письмо...\n")
-	err = smtp.SendMail(s.host+":"+strconv.Itoa(port), auth, s.from, []string{email}, msg)
-	if err != nil {
-		fmt.Printf("❌ Ошибка отправки почты для сброса пароля: %v\n", err)
-		return fmt.Errorf("ошибка отправки email: %v", err)
-	}
-
-	fmt.Printf("✅ Ссылка сброса пароля отправлена на %s\n", email)
-	fmt.Printf("🔑 ТОКЕН ДЛЯ ТЕСТА: %s\n", strings.Split(resetLink, "/reset-password/")[1])
-	return nil
 }

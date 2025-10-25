@@ -75,9 +75,8 @@ func (s *AuthService) Register(registerReq *models.RegisterRequest) (*models.Reg
 		return nil, fmt.Errorf("ошибка создания сессии верификации: %w", err)
 	}
 
-	if err := s.emailService.Send2FACode(user.Email, code); err != nil {
-		return nil, fmt.Errorf("ошибка отправки кода: %w", err)
-	}
+	// АСИНХРОННАЯ ОТПРАВКА - НЕ ЖДЕМ ОТВЕТА
+	s.emailService.Send2FACode(user.Email, code)
 
 	return &models.RegisterResponse{
 		Message:       "Код подтверждения отправлен на вашу почту",
@@ -113,9 +112,8 @@ func (s *AuthService) Login(loginReq *models.LoginRequest) (*models.LoginRespons
 		return nil, fmt.Errorf("ошибка создания сессии верификации: %w", err)
 	}
 
-	if err := s.emailService.Send2FACode(user.Email, code); err != nil {
-		return nil, fmt.Errorf("ошибка отправки кода: %w", err)
-	}
+	// АСИНХРОННАЯ ОТПРАВКА - НЕ ЖДЕМ ОТВЕТА
+	s.emailService.Send2FACode(user.Email, code)
 
 	return &models.LoginResponse{
 		Message:       "Код отправлен на вашу почту",
@@ -197,6 +195,7 @@ func (s *AuthService) Logout(refreshToken string) error {
 func (s *AuthService) RequestResetPassword(req *models.RequestResetPasswordRequest) (*models.ResetPasswordResponse, error) {
 	user, err := s.userRepo.GetUserByEmail(req.Email)
 	if err != nil {
+		// ВОЗВРАЩАЕМ УСПЕХ ДАЖЕ ЕСЛИ ПОЛЬЗОВАТЕЛЯ НЕТ (security)
 		return &models.ResetPasswordResponse{
 			Message: "Если пользователь с таким email существует, инструкции по сбросу пароля отправлены на почту",
 		}, nil
@@ -220,9 +219,8 @@ func (s *AuthService) RequestResetPassword(req *models.RequestResetPasswordReque
 	}
 	resetLink := fmt.Sprintf("%s/auth/reset-password/%s", clientURL, token)
 
-	if err := s.emailService.SendResetPasswordEmail(user.Email, resetLink); err != nil {
-		return nil, fmt.Errorf("ошибка отправки email: %w", err)
-	}
+	// АСИНХРОННАЯ ОТПРАВКА - НЕ ЖДЕМ ОТВЕТА
+	s.emailService.SendResetPasswordEmail(user.Email, resetLink)
 
 	return &models.ResetPasswordResponse{
 		Message: "Если пользователь с таким email существует, инструкции по сбросу пароля отправлены на почту",
