@@ -255,7 +255,7 @@ func (s *AuthService) RequestResetPassword(req *models.RequestResetPasswordReque
 	if clientURL == "" {
 		clientURL = "http://localhost:3000" // Значение по умолчанию
 	}
-	resetLink := fmt.Sprintf("%s/reset-password/%s", clientURL, token)
+	resetLink := fmt.Sprintf("%s/auth/reset-password/%s", clientURL, token)
 
 	// Отправляем email с ссылкой
 	if err := s.emailService.SendResetPasswordEmail(user.Email, resetLink); err != nil {

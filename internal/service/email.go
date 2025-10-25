@@ -6,6 +6,7 @@ import (
 	"net/smtp"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type EmailService struct {
@@ -136,14 +137,61 @@ func (s *EmailService) sendWithTLS(to string, msg []byte, auth smtp.Auth, port i
 
 // SendResetPasswordEmail отправляет email для сброса пароля
 func (s *EmailService) SendResetPasswordEmail(email, resetLink string) error {
-	fmt.Printf("🎯 ОТПРАВКА ССЫЛКИ СБРОСА ПАРОЛЯ:\n")
+	fmt.Printf("🔐 ОТПРАВКА ССЫЛКИ СБРОСА ПАРОЛЯ:\n")
 	fmt.Printf("📧 Кому: %s\n", email)
 	fmt.Printf("🔗 Ссылка: %s\n", resetLink)
+	fmt.Printf("⚙️ SMTP: %s:%s\n", s.host, s.port)
+	fmt.Printf("👤 Auth: %s\n", s.username)
 
-	// Для теста просто выводим ссылку
-	fmt.Printf("🔑 ТОКЕН ДЛЯ ТЕСТА: %s\n", resetLink)
+	// Проверяем настройки
+	if s.host == "" || s.username == "" || s.password == "" {
+		fmt.Printf("❌ SMTP настройки не заполнены!\n")
+		return fmt.Errorf("SMTP настройки не заполнены")
+	}
 
-	// Пока возвращаем успех для тестирования
-	fmt.Printf("✅ (РЕЖИМ ТЕСТИРОВАНИЯ) Ссылка выведена в консоль\n")
+	// Аутентификация
+	auth := smtp.PlainAuth("", s.username, s.password, s.host)
+
+	port, err := strconv.Atoi(s.port)
+	if err != nil || port == 0 {
+		port = 587
+		fmt.Printf("⚙️ Используем порт по умолчанию: %d\n", port)
+	}
+
+	// Текст письма
+	subject := "Subject: Сброс пароля - Ростелеком Проекты\r\n"
+	mime := "MIME-version: 1.0;\r\nContent-Type: text/html; charset=\"UTF-8\";\r\n\r\n"
+	body := fmt.Sprintf(`
+<html>
+<body style="font-family: Arial, sans-serif;">
+    <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd;">
+        <h2 style="color: #1890ff;">Ростелеком Проекты</h2>
+        <h3>Сброс пароля</h3>
+        <p>Для сброса пароля перейдите по ссылке ниже:</p>
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="%s" style="background-color: #1890ff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; display: inline-block;">
+                Сбросить пароль
+            </a>
+        </div>
+        <p><strong>Ссылка действительна 1 час.</strong></p>
+        <p>Если вы не запрашивали сброс пароля, проигнорируйте это письмо.</p>
+        <hr>
+        <p style="color: #666; font-size: 12px;">Это автоматическое сообщение, пожалуйста, не отвечайте на него.</p>
+    </div>
+</body>
+</html>`, resetLink)
+
+	msg := []byte(subject + mime + body)
+
+	// Отправка почты
+	fmt.Printf("📤 Пытаемся отправить письмо...\n")
+	err = smtp.SendMail(s.host+":"+strconv.Itoa(port), auth, s.from, []string{email}, msg)
+	if err != nil {
+		fmt.Printf("❌ Ошибка отправки почты для сброса пароля: %v\n", err)
+		return fmt.Errorf("ошибка отправки email: %v", err)
+	}
+
+	fmt.Printf("✅ Ссылка сброса пароля отправлена на %s\n", email)
+	fmt.Printf("🔑 ТОКЕН ДЛЯ ТЕСТА: %s\n", strings.Split(resetLink, "/reset-password/")[1])
 	return nil
 }

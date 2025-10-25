@@ -3,6 +3,7 @@ package main
 import (
 	"auth-service/internal/config"
 	"auth-service/internal/handlers"
+	"auth-service/internal/middleware"
 	"auth-service/internal/repository"
 	"auth-service/internal/service"
 	"auth-service/pkg/database"
@@ -72,44 +73,23 @@ func main() {
 	router.Use(gin.Recovery())
 
 	// Публичные маршруты аутентификации
-	// В файле с роутами добавьте:
-
-	// Защищенные роуты с middleware
-	protected := router.Group("/api")
-	protected.Use(authHandler.AuthMiddleware()) // ← ДОБАВИТЬ ЭТУ СТРОЧКУ
-	{
-		protected.GET("/profile", authHandler.Profile)
-		// другие защищенные эндпоинты...
-	}
-
-	// Auth роуты
 	auth := router.Group("/auth")
 	{
 		auth.POST("/register", authHandler.Register)
 		auth.POST("/login", authHandler.Login)
 		auth.POST("/verify-email", authHandler.VerifyEmail)
-		auth.POST("/refresh", authHandler.Refresh) // ← Refresh теперь через куки
-		auth.POST("/logout", authHandler.Logout)   // ← Logout теперь через куки
+		auth.POST("/refresh", authHandler.Refresh)
+		auth.POST("/logout", authHandler.Logout)
 		auth.POST("/request-reset-password", authHandler.RequestResetPassword)
 		auth.POST("/reset-password", authHandler.ResetPassword)
 	}
-	// Тестовый эндпоинт для проверки кук
-	router.GET("/auth/test-cookies", func(c *gin.Context) {
-		// Получаем куки
-		accessToken, _ := c.Cookie("access_token")
-		refreshToken, _ := c.Cookie("refresh_token")
 
-		hasAccess := accessToken != ""
-		hasRefresh := refreshToken != ""
-
-		c.JSON(200, gin.H{
-			"has_access_token":     hasAccess,
-			"has_refresh_token":    hasRefresh,
-			"access_token_length":  len(accessToken),
-			"refresh_token_length": len(refreshToken),
-			"message":              "Этот эндпоинт проверяет куки",
-		})
-	})
+	// 🔥 ЗАЩИЩЕННЫЕ МАРШРУТЫ - ТОЛЬКО ОДНА ГРУППА
+	protected := router.Group("/auth")
+	protected.Use(middleware.AuthMiddleware())
+	{
+		protected.GET("/profile", authHandler.Profile)
+	}
 
 	// Маршрут для проверки здоровья
 	router.GET("/health", func(c *gin.Context) {
