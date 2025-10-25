@@ -6,7 +6,6 @@ import (
 	"auth-service/internal/utils"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,6 +16,37 @@ type AuthHandler struct {
 
 func NewAuthHandler(authService *service.AuthService) *AuthHandler {
 	return &AuthHandler{authService: authService}
+}
+
+// setTokenCookies устанавливает access и refresh токены в httpOnly куки
+func (h *AuthHandler) setTokenCookies(c *gin.Context, accessToken, refreshToken string) {
+	// Access Token кука (15 минут, доступен для всех API endpoints)
+	c.SetCookie(
+		"access_token",
+		accessToken,
+		15*60, // 15 минут
+		"/",
+		"",
+		true, // Secure (true для продакшена)
+		true, // HttpOnly
+	)
+
+	// Refresh Token кука (7 дней, доступен только для refresh endpoint)
+	c.SetCookie(
+		"refresh_token",
+		refreshToken,
+		7*24*60*60, // 7 дней
+		"/auth/refresh",
+		"",
+		true, // Secure
+		true, // HttpOnly
+	)
+}
+
+// clearTokenCookies очищает токены из кук
+func (h *AuthHandler) clearTokenCookies(c *gin.Context) {
+	c.SetCookie("access_token", "", -1, "/", "", true, true)
+	c.SetCookie("refresh_token", "", -1, "/auth/refresh", "", true, true)
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -74,7 +104,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// VerifyEmail обрабатывает проверку кода верификации
+// // VerifyEmail обрабатывает проверку кода верификации
 func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	var req models.VerifyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -88,23 +118,32 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 		return
 	}
 
+	// SameSite=None но БЕЗ Secure
+	c.SetSameSite(http.SameSiteNoneMode)
+
 	// Устанавливаем access token в httpOnly cookie
-	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(
 		"access_token",
 		response.AccessToken,
 		3600, // 1 час
 		"/",
-		"",
-		false,
-		true,
+		"",    // домен
+		false, // 🔥 Secure = false для HTTP разработки
+		true,  // httpOnly
 	)
 
-	// Возвращаем пользователя и refresh token в теле ответа
+	c.SetCookie(
+		"refresh_token",
+		response.RefreshToken,
+		7*24*3600, // 7 дней
+		"/",
+		"",    // домен
+		false, // 🔥 Secure = false для HTTP разработки
+		true,  // httpOnly
+	)
+
 	c.JSON(http.StatusOK, gin.H{
-		"refresh_token": response.RefreshToken,
-		"user":          response.User,
-		"message":       "Верификация успешно завершена",
+		"message": "Верификация успешно завершена",
 	})
 }
 
@@ -149,17 +188,9 @@ func (h *AuthHandler) Profile(c *gin.Context) {
 
 // Refresh обновляет токены
 func (h *AuthHandler) Refresh(c *gin.Context) {
-	// Получаем refresh token из заголовка Authorization
-	authHeader := c.GetHeader("Authorization")
-	if authHeader == "" {
+	refreshToken, err := c.Cookie("refresh_token")
+	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Отсутствует refresh token"})
-		return
-	}
-
-	// Извлекаем токен из заголовка (формат: "Bearer {token}")
-	refreshToken := strings.Replace(authHeader, "Bearer ", "", 1)
-	if refreshToken == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Неверный формат токена"})
 		return
 	}
 
@@ -169,54 +200,59 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
+	// 🔥 СТАВИМ SameSite=None
+	c.SetSameSite(http.SameSiteNoneMode)
+
 	// Устанавливаем новый access token в cookie
-	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(
 		"access_token",
 		tokens.AccessToken,
-		3600, // 1 час
+		3600,
 		"/",
 		"",
-		false,
+		true, // 🔥 secure = true
 		true,
 	)
 
-	// Возвращаем новый refresh token в теле ответа
+	c.SetCookie(
+		"refresh_token",
+		tokens.RefreshToken,
+		7*24*3600,
+		"/",
+		"",
+		true, // 🔥 secure = true
+		true,
+	)
+
 	c.JSON(http.StatusOK, gin.H{
-		"refresh_token": tokens.RefreshToken,
-		"message":       "Токены успешно обновлены",
+		"message": "Токены успешно обновлены",
 	})
 }
 
 // Logout обрабатывает выход пользователя
 func (h *AuthHandler) Logout(c *gin.Context) {
-	// Получаем refresh token из заголовка Authorization
-	authHeader := c.GetHeader("Authorization")
-	if authHeader == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Отсутствует токен"})
-		return
-	}
-
-	refreshToken := strings.Replace(authHeader, "Bearer ", "", 1)
-	if refreshToken == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат токена"})
-		return
-	}
-
-	// Удаляем refresh token из базы
-	if err := h.authService.Logout(refreshToken); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при выходе из системы"})
-		return
-	}
+	// 🔥 СТАВИМ SameSite=None
+	c.SetSameSite(http.SameSiteNoneMode)
 
 	// Очищаем access token cookie
 	c.SetCookie(
 		"access_token",
 		"",
-		-1, // удаляем cookie
+		-1,
 		"/",
 		"",
-		false,
+		true, // 🔥 secure = true
+		true,
+	)
+
+	// Очищаем refresh token cookie
+	c.SetCookie(
+		"refresh_token",
+		"",
+		-1,
+		"/",
+		"",
+		true, // 🔥 secure = true
 		true,
 	)
 
@@ -257,4 +293,33 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// AuthMiddleware middleware для проверки access token
+func (h *AuthHandler) AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Получаем access token из куки
+		accessToken, err := c.Cookie("access_token")
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "Требуется авторизация",
+			})
+			c.Abort()
+			return
+		}
+
+		// Валидируем токен
+		claims, err := utils.ValidateToken(accessToken)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "Невалидный токен",
+			})
+			c.Abort()
+			return
+		}
+
+		// Сохраняем userID в контекст для использования в обработчиках
+		c.Set("userID", claims.UserID)
+		c.Next()
+	}
 }

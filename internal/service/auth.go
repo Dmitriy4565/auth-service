@@ -91,9 +91,6 @@ func (s *AuthService) Register(registerReq *models.RegisterRequest) (*models.Reg
 		return nil, fmt.Errorf("ошибка отправки кода: %w", err)
 	}
 
-	// 🔥 ВАЖНО: НИКАКИХ ТОКЕНОВ ЗДЕСЬ НЕ ГЕНЕРИРУЕМ!
-	// Токены только после успешной верификации в VerifyCode
-
 	return &models.RegisterResponse{
 		Message:       "Код подтверждения отправлен на вашу почту",
 		ActivatedLink: activatedLink,
@@ -112,10 +109,6 @@ func (s *AuthService) Login(loginReq *models.LoginRequest) (*models.LoginRespons
 	if !utils.CheckPasswordHash(loginReq.Password, user.PasswordHash) {
 		return nil, errors.New("неверный email или пароль")
 	}
-
-	// 🔥 ИСПРАВЛЕНИЕ: Всегда требуем верификацию при логине
-	// Независимо от того, включен ли 2FA или нет
-	// (2FA включается автоматически после первой успешной верификации)
 
 	// Генерируем activated_link и код
 	activatedLink := uuid.New().String()
