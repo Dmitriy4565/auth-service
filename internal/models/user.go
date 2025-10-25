@@ -4,7 +4,6 @@ import (
 	"time"
 )
 
-// User - основная модель пользователя
 type User struct {
 	ID                uint      `gorm:"primaryKey" json:"id"`
 	Name              string    `gorm:"size:100;not null" json:"name"`
@@ -19,7 +18,6 @@ type User struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
-// Session - модель сессии для refresh токенов
 type Session struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	UserID       uint      `gorm:"not null" json:"user_id"`
@@ -28,7 +26,6 @@ type Session struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// TwoFactorCode - модель для кодов двухфакторной аутентификации
 type TwoFactorCode struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	UserID    uint      `gorm:"not null" json:"user_id"`
@@ -38,7 +35,6 @@ type TwoFactorCode struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// VerificationSession - модель для сессий верификации
 type VerificationSession struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	UUID      string    `gorm:"size:36;uniqueIndex;not null" json:"activated_link"`
@@ -50,7 +46,6 @@ type VerificationSession struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// ResetPasswordToken - модель для токена сброса пароля
 type ResetPasswordToken struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	UserID    uint      `gorm:"not null" json:"user_id"`
@@ -60,7 +55,6 @@ type ResetPasswordToken struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// DTO для запросов и ответов API
 type RegisterRequest struct {
 	Name     string `json:"name" binding:"required,min=2,max=100"`
 	Lastname string `json:"lastname" binding:"required,min=2,max=100"`
@@ -104,7 +98,6 @@ type TokenResponse struct {
 	Message string `json:"message"`
 }
 
-// DTO для запросов сброса пароля
 type RequestResetPasswordRequest struct {
 	Email string `json:"email" binding:"required,email"`
 }
@@ -118,15 +111,11 @@ type ResetPasswordResponse struct {
 	Message string `json:"message"`
 }
 
-// Добавьте в конец файла с моделями:
-
-// Verify2FARequest запрос для верификации 2FA кода
 type Verify2FARequest struct {
 	Email string `json:"email" binding:"required,email"`
 	Code  string `json:"code" binding:"required"`
 }
 
-// Verify2FAResponse ответ после успешной верификации 2FA
 type Verify2FAResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`

@@ -16,16 +16,13 @@ import (
 )
 
 func main() {
-	// Загружаем .env файл
 	if err := godotenv.Load(); err != nil {
 		log.Println("⚠️  .env файл не найден, используются переменные окружения по умолчанию")
 	}
 
-	// Загружаем конфигурацию
 	cfg := config.Load()
 	log.Printf("📁 Конфигурация загружена: БД=%s, Порт=%s", cfg.DBName, cfg.Port)
 
-	// Подключаемся к базе данных
 	db, err := database.NewPostgresDB(
 		cfg.DBHost,
 		cfg.DBPort,
@@ -37,15 +34,12 @@ func main() {
 		log.Fatal("❌ Ошибка подключения к базе данных:", err)
 	}
 
-	// Инициализируем слои приложения
 	userRepo := repository.NewUserRepository(db)
 	authService := service.NewAuthService(userRepo)
 	authHandler := handlers.NewAuthHandler(authService)
 
-	// Создаем Gin роутер
 	router := gin.Default()
 
-	// CORS middleware для фронта
 	router.Use(func(c *gin.Context) {
 		allowedOrigins := strings.Split(os.Getenv("CORS_ALLOW_ORIGINS"), ",")
 		origin := c.Request.Header.Get("Origin")
@@ -68,11 +62,9 @@ func main() {
 		c.Next()
 	})
 
-	// Глобальные мидлвари
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
 
-	// Публичные маршруты аутентификации
 	auth := router.Group("/auth")
 	{
 		auth.POST("/register", authHandler.Register)
@@ -84,14 +76,12 @@ func main() {
 		auth.POST("/reset-password", authHandler.ResetPassword)
 	}
 
-	// 🔥 ЗАЩИЩЕННЫЕ МАРШРУТЫ - ТОЛЬКО ОДНА ГРУППА
 	protected := router.Group("/auth")
 	protected.Use(middleware.AuthMiddleware())
 	{
 		protected.GET("/profile", authHandler.Profile)
 	}
 
-	// Маршрут для проверки здоровья
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"status":    "ok",
@@ -100,10 +90,9 @@ func main() {
 		})
 	})
 
-	// Запускаем сервер
-	log.Printf("✅ Сервер запущен на порту %s", cfg.Port)
-	log.Printf("📚 API доступно по http://localhost:%s", cfg.Port)
-	log.Printf("🌐 CORS разрешены для: %s", os.Getenv("CORS_ALLOW_ORIGINS"))
+	log.Printf("Сервер запущен на порту %s", cfg.Port)
+	log.Printf("API доступно по http://localhost:%s", cfg.Port)
+	log.Printf("CORS разрешены для: %s", os.Getenv("CORS_ALLOW_ORIGINS"))
 
 	if err := router.Run(":" + cfg.Port); err != nil {
 		log.Fatal("❌ Ошибка запуска сервера:", err)

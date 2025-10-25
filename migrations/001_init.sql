@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Создаем таблицу кодов двухфакторной аутентификации
+-- Создаем таблицу кодов двухфакторки
 CREATE TABLE IF NOT EXISTS two_factor_codes (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS two_factor_codes (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Создаем таблицу сессий верификации
+-- Создаем таблицу сессий
 CREATE TABLE IF NOT EXISTS verification_sessions (
     id SERIAL PRIMARY KEY,
     uuid VARCHAR(36) UNIQUE NOT NULL,
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS verification_sessions (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Создаем таблицу токенов сброса пароля
+-- Создаем таблицу токенов для сброса 
 CREATE TABLE IF NOT EXISTS reset_password_tokens (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS reset_password_tokens (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Создаем индексы для улучшения производительности
+-- Создаем индексы 
 CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token ON sessions(refresh_token);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_two_factor_codes_user_id ON two_factor_codes(user_id);

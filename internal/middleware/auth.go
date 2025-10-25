@@ -9,10 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// AuthMiddleware проверяет access token из заголовка Authorization
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Получаем access token из заголовка Authorization
 		authHeader := c.GetHeader("Authorization")
 		fmt.Printf("🎯 ДЕБАГ AuthMiddleware - Authorization header: '%s'\n", authHeader)
 
@@ -25,7 +23,6 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Извлекаем токен из заголовка (формат: "Bearer {token}")
 		accessToken := strings.Replace(authHeader, "Bearer ", "", 1)
 		fmt.Printf("🎯 ДЕБАГ AuthMiddleware - Extracted token: '%s...'\n", accessToken[:50])
 
@@ -38,7 +35,6 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Валидируем токен
 		fmt.Printf("🎯 ДЕБАГ AuthMiddleware - Validating token...\n")
 		claims, err := utils.ValidateToken(accessToken)
 		if err != nil {
@@ -55,7 +51,6 @@ func AuthMiddleware() gin.HandlerFunc {
 		fmt.Printf("✅ ДЕБАГ AuthMiddleware - UserID: %d, Email: %s, Role: %s\n",
 			claims.UserID, claims.Email, claims.Role)
 
-		// Сохраняем данные пользователя в контекст
 		c.Set("user_id", claims.UserID)
 		c.Set("user_email", claims.Email)
 		c.Set("user_role", claims.Role)

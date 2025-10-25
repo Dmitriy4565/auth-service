@@ -16,7 +16,6 @@ func NewUserRepository(db *gorm.DB) *UserRepository {
 	return &UserRepository{db: db}
 }
 
-// User methods
 func (r *UserRepository) CreateUser(user *models.User) error {
 	return r.db.Create(user).Error
 }
@@ -25,11 +24,9 @@ func (r *UserRepository) GetUserByEmail(email string) (*models.User, error) {
 	var user models.User
 	err := r.db.Where("email = ?", email).First(&user).Error
 	if err != nil {
-		// Если пользователь не найден, возвращаем nil и понятную ошибку
 		if err == gorm.ErrRecordNotFound {
 			return nil, errors.New("пользователь не найден")
 		}
-		// Другие ошибки БД
 		return nil, err
 	}
 	return &user, nil
@@ -45,7 +42,6 @@ func (r *UserRepository) UpdateUser(user *models.User) error {
 	return r.db.Save(user).Error
 }
 
-// Session methods
 func (r *UserRepository) CreateSession(session *models.Session) error {
 	return r.db.Create(session).Error
 }
@@ -68,7 +64,6 @@ func (r *UserRepository) DeleteAllUserSessions(userID uint) error {
 	return r.db.Where("user_id = ?", userID).Delete(&models.Session{}).Error
 }
 
-// TwoFactorCode methods
 func (r *UserRepository) CreateTwoFactorCode(code *models.TwoFactorCode) error {
 	return r.db.Create(code).Error
 }
@@ -87,7 +82,6 @@ func (r *UserRepository) DeleteExpiredTwoFactorCodes() error {
 	return r.db.Where("expires_at < ?", time.Now()).Delete(&models.TwoFactorCode{}).Error
 }
 
-// VerificationSession methods
 func (r *UserRepository) CreateVerificationSession(session *models.VerificationSession) error {
 	return r.db.Create(session).Error
 }
@@ -106,7 +100,6 @@ func (r *UserRepository) DeleteExpiredVerificationSessions() error {
 	return r.db.Where("expires_at < ?", time.Now()).Delete(&models.VerificationSession{}).Error
 }
 
-// ResetPasswordToken methods
 func (r *UserRepository) CreateResetPasswordToken(token *models.ResetPasswordToken) error {
 	return r.db.Create(token).Error
 }

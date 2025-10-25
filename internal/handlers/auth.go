@@ -19,32 +19,28 @@ func NewAuthHandler(authService *service.AuthService) *AuthHandler {
 	return &AuthHandler{authService: authService}
 }
 
-// setTokenCookies устанавливает access и refresh токены в httpOnly куки
 func (h *AuthHandler) setTokenCookies(c *gin.Context, accessToken, refreshToken string) {
-	// Access Token кука (15 минут, доступен для всех API endpoints)
 	c.SetCookie(
 		"access_token",
 		accessToken,
-		15*60, // 15 минут
+		15*60,
 		"/",
 		"",
-		true, // Secure (true для продакшена)
-		true, // HttpOnly
+		true,
+		true,
 	)
 
-	// Refresh Token кука (7 дней, доступен только для refresh endpoint)
 	c.SetCookie(
 		"refresh_token",
 		refreshToken,
-		7*24*60*60, // 7 дней
+		7*24*60*60,
 		"/auth/refresh",
 		"",
-		true, // Secure
-		true, // HttpOnly
+		true,
+		true,
 	)
 }
 
-// clearTokenCookies очищает токены из кук
 func (h *AuthHandler) clearTokenCookies(c *gin.Context) {
 	c.SetCookie("access_token", "", -1, "/", "", true, true)
 	c.SetCookie("refresh_token", "", -1, "/auth/refresh", "", true, true)
@@ -73,7 +69,6 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Проверяем заголовки ПЕРЕД отправкой ответа
 	headers := c.Writer.Header()
 	fmt.Printf("📋 ДЕБАГ: Response headers before send: %v\n", headers)
 
@@ -83,7 +78,6 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// Login обрабатывает вход пользователя
 func (h *AuthHandler) Login(c *gin.Context) {
 	var loginReq models.LoginRequest
 
@@ -105,7 +99,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// VerifyEmail обрабатывает проверку кода верификации
 func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	var req models.VerifyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -119,15 +112,12 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 		return
 	}
 
-	// 🔥 ВОЗВРАЩАЕМ ТОЛЬКО ТОКЕНЫ, НИЧЕГО БОЛЬШЕ
 	c.JSON(http.StatusOK, gin.H{
 		"access_token":  response.AccessToken,
 		"refresh_token": response.RefreshToken})
 }
 
-// Profile возвращает профиль пользователя
 func (h *AuthHandler) Profile(c *gin.Context) {
-	// 🔥 Получаем userID из контекста (сохраненного как "user_id")
 	userID, exists := c.Get("user_id")
 	fmt.Printf("🎯 ДЕБАГ Profile - user_id from context: %v, exists: %v\n", userID, exists)
 
@@ -138,7 +128,6 @@ func (h *AuthHandler) Profile(c *gin.Context) {
 		return
 	}
 
-	// Находим пользователя в БД
 	user, err := h.authService.GetUserByID(userID.(uint))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -147,7 +136,6 @@ func (h *AuthHandler) Profile(c *gin.Context) {
 		return
 	}
 
-	// Возвращаем профиль пользователя
 	profile := models.ProfileResponse{
 		Name:     user.Name,
 		Lastname: user.Lastname,
@@ -157,16 +145,13 @@ func (h *AuthHandler) Profile(c *gin.Context) {
 	c.JSON(http.StatusOK, profile)
 }
 
-// Refresh обновляет токены
 func (h *AuthHandler) Refresh(c *gin.Context) {
-	// Получаем refresh token из заголовка Authorization
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Отсутствует refresh token в заголовке Authorization"})
 		return
 	}
 
-	// Извлекаем токен из заголовка (формат: "Bearer {token}")
 	refreshToken := strings.Replace(authHeader, "Bearer ", "", 1)
 	if refreshToken == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Неверный формат refresh token"})
@@ -179,7 +164,6 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	// Возвращаем новые токены в теле ответа
 	c.JSON(http.StatusOK, gin.H{
 		"access_token":  tokens.AccessToken,
 		"refresh_token": tokens.RefreshToken,
@@ -187,30 +171,26 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	})
 }
 
-// Logout обрабатывает выход пользователя
 func (h *AuthHandler) Logout(c *gin.Context) {
-	// 🔥 СТАВИМ SameSite=None
 	c.SetSameSite(http.SameSiteNoneMode)
 
-	// Очищаем access token cookie
 	c.SetCookie(
 		"access_token",
 		"",
 		-1,
 		"/",
 		"",
-		true, // 🔥 secure = true
+		true,
 		true,
 	)
 
-	// Очищаем refresh token cookie
 	c.SetCookie(
 		"refresh_token",
 		"",
 		-1,
 		"/",
 		"",
-		true, // 🔥 secure = true
+		true,
 		true,
 	)
 
@@ -219,7 +199,6 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	})
 }
 
-// RequestResetPassword обрабатывает запрос на сброс пароля
 func (h *AuthHandler) RequestResetPassword(c *gin.Context) {
 	var req models.RequestResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -236,7 +215,6 @@ func (h *AuthHandler) RequestResetPassword(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// ResetPassword обрабатывает сброс пароля
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req models.ResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -253,10 +231,8 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// AuthMiddleware middleware для проверки access token
 func (h *AuthHandler) AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Получаем access token из куки
 		accessToken, err := c.Cookie("access_token")
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
@@ -266,7 +242,6 @@ func (h *AuthHandler) AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Валидируем токен
 		claims, err := utils.ValidateToken(accessToken)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
@@ -276,7 +251,6 @@ func (h *AuthHandler) AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Сохраняем userID в контекст для использования в обработчиках
 		c.Set("userID", claims.UserID)
 		c.Next()
 	}

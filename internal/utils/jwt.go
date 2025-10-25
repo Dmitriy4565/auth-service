@@ -11,27 +11,26 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// GetTokenExpiration возвращает время жизни токенов
+// возвращает время жизни
 func GetTokenExpiration() (accessExp time.Duration, refreshExp time.Duration) {
 	accessMinutes, _ := strconv.Atoi(os.Getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
 	refreshDays, _ := strconv.Atoi(os.Getenv("REFRESH_TOKEN_EXPIRE_DAYS"))
 
 	if accessMinutes == 0 {
-		accessMinutes = 15 // 15 минут по умолчанию
+		accessMinutes = 15
 	}
 	if refreshDays == 0 {
-		refreshDays = 7 // 7 дней по умолчанию
+		refreshDays = 7
 	}
 
 	return time.Duration(accessMinutes) * time.Minute,
 		time.Duration(refreshDays) * 24 * time.Hour
 }
 
-// getJWTSecret возвращает JWT секрет из переменных окружения
+// возвращает JWT из env
 func getJWTSecret() []byte {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		// Fallback для разработки
 		return []byte("fallback-secret-key-change-in-production")
 	}
 	return []byte(secret)
@@ -65,7 +64,6 @@ func GenerateToken(userID uint, email, role string) (string, error) {
 }
 
 func GenerateRefreshToken() (string, error) {
-	// Генерируем 32 случайных байта
 	tokenBytes := make([]byte, 32)
 	_, err := rand.Read(tokenBytes)
 	if err != nil {
