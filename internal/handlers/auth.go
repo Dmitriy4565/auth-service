@@ -4,7 +4,9 @@ import (
 	"auth-service/internal/models"
 	"auth-service/internal/service"
 	"auth-service/internal/utils"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,49 +19,40 @@ func NewAuthHandler(authService *service.AuthService) *AuthHandler {
 	return &AuthHandler{authService: authService}
 }
 
-// Register обрабатывает регистрацию пользователя
-// @Summary Регистрация пользователя
-// @Description Создает нового пользователя и отправляет код подтверждения на почту
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Param request body models.RegisterRequest true "Данные для регистрации"
-// @Success 200 {object} models.RegisterResponse "Код отправлен на почту"
-// @Failure 400 {object} gin.H "Ошибка валидации данных"
-// @Router /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
-	var registerReq models.RegisterRequest
+	fmt.Println("🎯 ДЕБАГ: ===== REGISTER HANDLER START =====")
 
+	var registerReq models.RegisterRequest
 	if err := c.ShouldBindJSON(&registerReq); err != nil {
+		fmt.Printf("❌ ДЕБАГ: Validation error: %v\n", err)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "Неверные данные: " + err.Error(),
 		})
 		return
 	}
 
-	// Регистрируем пользователя и отправляем код на почту
+	fmt.Printf("📧 ДЕБАГ: Registering user: %s\n", registerReq.Email)
+
 	response, err := h.authService.Register(&registerReq)
 	if err != nil {
+		fmt.Printf("❌ ДЕБАГ: Service error: %v\n", err)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),
 		})
 		return
 	}
 
+	// Проверяем заголовки ПЕРЕД отправкой ответа
+	headers := c.Writer.Header()
+	fmt.Printf("📋 ДЕБАГ: Response headers before send: %v\n", headers)
+
+	fmt.Printf("✅ ДЕБАГ: Registration successful, activated_link: %s\n", response.ActivatedLink)
+	fmt.Println("🎯 ДЕБАГ: ===== REGISTER HANDLER END =====")
+
 	c.JSON(http.StatusOK, response)
 }
 
 // Login обрабатывает вход пользователя
-// @Summary Аутентификация пользователя
-// @Description Выполняет вход пользователя и отправляет код подтверждения на почту
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Param request body models.LoginRequest true "Данные для входа"
-// @Success 200 {object} models.LoginResponse "Код отправлен на почту"
-// @Failure 400 {object} gin.H "Ошибка валидации данных"
-// @Failure 401 {object} gin.H "Неверные учетные данные"
-// @Router /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var loginReq models.LoginRequest
 
@@ -70,7 +63,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// Аутентифицируем пользователя и отправляем код на почту
 	response, err := h.authService.Login(&loginReq)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -82,51 +74,41 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// VerifyEmail проверяет код подтверждения по UUID
-// @Summary Проверка кода подтверждения
-// @Description Проверяет код по UUID и выдает токены
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Param request body models.VerifyRequest true "UUID и код подтверждения"
-// @Success 200 {object} models.VerifyResponse "Токены установлены в cookies"
-// @Failure 400 {object} gin.H "Ошибка валидации данных"
-// @Failure 401 {object} gin.H "Неверный код"
-// @Router /auth/verifyEmail [post]
+// VerifyEmail обрабатывает проверку кода верификации
 func (h *AuthHandler) VerifyEmail(c *gin.Context) {
-	var verifyReq models.VerifyRequest
-
-	if err := c.ShouldBindJSON(&verifyReq); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Неверные данные: " + err.Error(),
-		})
+	var req models.VerifyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверные данные запроса"})
 		return
 	}
 
-	// Проверяем код по UUID и выдаем токены
-	response, err := h.authService.VerifyCode(&verifyReq)
+	response, err := h.authService.VerifyCode(&req)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": err.Error(),
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Устанавливаем токены в httpOnly cookies
-	h.setAuthCookies(c, response.AccessToken, response.RefreshToken)
+	// Устанавливаем access token в httpOnly cookie
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(
+		"access_token",
+		response.AccessToken,
+		3600, // 1 час
+		"/",
+		"",
+		false,
+		true,
+	)
 
-	c.JSON(http.StatusOK, response)
+	// Возвращаем пользователя и refresh token в теле ответа
+	c.JSON(http.StatusOK, gin.H{
+		"refresh_token": response.RefreshToken,
+		"user":          response.User,
+		"message":       "Верификация успешно завершена",
+	})
 }
 
 // Profile возвращает профиль пользователя
-// @Summary Профиль пользователя
-// @Description Возвращает данные текущего пользователя
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Success 200 {object} models.ProfileResponse "Данные пользователя"
-// @Failure 401 {object} gin.H "Требуется авторизация"
-// @Router /auth/profile [get]
 func (h *AuthHandler) Profile(c *gin.Context) {
 	// Получаем access token из cookie
 	accessToken, err := c.Cookie("access_token")
@@ -166,66 +148,113 @@ func (h *AuthHandler) Profile(c *gin.Context) {
 }
 
 // Refresh обновляет токены
-// @Summary Обновление токенов
-// @Description Обновляет access и refresh токены
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Success 200 {object} models.TokenResponse "Токены обновлены"
-// @Failure 401 {object} gin.H "Невалидный refresh token"
-// @Router /auth/refresh [get]
 func (h *AuthHandler) Refresh(c *gin.Context) {
-	// Получаем refresh token из cookie
-	refreshToken, err := c.Cookie("refresh_token")
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "Refresh token не найден",
-		})
+	// Получаем refresh token из заголовка Authorization
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Отсутствует refresh token"})
 		return
 	}
 
-	// Обновляем токены
+	// Извлекаем токен из заголовка (формат: "Bearer {token}")
+	refreshToken := strings.Replace(authHeader, "Bearer ", "", 1)
+	if refreshToken == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Неверный формат токена"})
+		return
+	}
+
 	tokens, err := h.authService.RefreshTokens(refreshToken)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": err.Error(),
-		})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Устанавливаем новые токены в cookies
-	h.setAuthCookies(c, tokens.AccessToken, tokens.RefreshToken)
+	// Устанавливаем новый access token в cookie
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(
+		"access_token",
+		tokens.AccessToken,
+		3600, // 1 час
+		"/",
+		"",
+		false,
+		true,
+	)
 
-	c.JSON(http.StatusOK, models.TokenResponse{
-		Message: "Токены успешно обновлены",
+	// Возвращаем новый refresh token в теле ответа
+	c.JSON(http.StatusOK, gin.H{
+		"refresh_token": tokens.RefreshToken,
+		"message":       "Токены успешно обновлены",
 	})
 }
 
-// setAuthCookies устанавливает access и refresh токены в httpOnly cookies
-func (h *AuthHandler) setAuthCookies(c *gin.Context, accessToken, refreshToken string) {
-	// Access token на 15 минут
-	c.SetCookie("access_token", accessToken, 15*60, "/", "", false, true)
-	// Refresh token на 7 дней
-	c.SetCookie("refresh_token", refreshToken, 7*24*60*60, "/", "", false, true)
-
-	// Также возвращаем access token в теле ответа для удобства фронта
-	c.Header("X-Access-Token", accessToken)
-}
-
-// Logout выполняет выход пользователя
-// @Summary Выход из системы
-// @Description Выполняет logout и удаляет токены
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Success 200 {object} models.TokenResponse "Успешный выход"
-// @Router /auth/logout [post]
+// Logout обрабатывает выход пользователя
 func (h *AuthHandler) Logout(c *gin.Context) {
-	// Удаляем токены из cookies
-	c.SetCookie("access_token", "", -1, "/", "", false, true)
-	c.SetCookie("refresh_token", "", -1, "/", "", false, true)
+	// Получаем refresh token из заголовка Authorization
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Отсутствует токен"})
+		return
+	}
 
-	c.JSON(http.StatusOK, models.TokenResponse{
-		Message: "Успешный выход из системы",
+	refreshToken := strings.Replace(authHeader, "Bearer ", "", 1)
+	if refreshToken == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат токена"})
+		return
+	}
+
+	// Удаляем refresh token из базы
+	if err := h.authService.Logout(refreshToken); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при выходе из системы"})
+		return
+	}
+
+	// Очищаем access token cookie
+	c.SetCookie(
+		"access_token",
+		"",
+		-1, // удаляем cookie
+		"/",
+		"",
+		false,
+		true,
+	)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Успешный выход",
 	})
+}
+
+// RequestResetPassword обрабатывает запрос на сброс пароля
+func (h *AuthHandler) RequestResetPassword(c *gin.Context) {
+	var req models.RequestResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверные данные запроса"})
+		return
+	}
+
+	response, err := h.authService.RequestResetPassword(&req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// ResetPassword обрабатывает сброс пароля
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var req models.ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверные данные запроса"})
+		return
+	}
+
+	response, err := h.authService.ResetPassword(&req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
 }

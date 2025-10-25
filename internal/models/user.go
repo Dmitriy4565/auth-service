@@ -38,10 +38,10 @@ type TwoFactorCode struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// 🔥 VerificationSession - НОВАЯ модель для сессий верификации
+// 🔥 VerificationSession - модель для сессий верификации
 type VerificationSession struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
-	UUID      string    `gorm:"size:36;uniqueIndex;not null" json:"uuid"`
+	UUID      string    `gorm:"size:36;uniqueIndex;not null" json:"activated_link"`
 	Email     string    `gorm:"size:255;not null" json:"email"`
 	Code      string    `gorm:"size:10;not null" json:"code"`
 	Operation string    `gorm:"size:20;not null" json:"operation"` // "register" или "login"
@@ -63,23 +63,23 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required,min=5"`
 }
 
-// 🔥 VerifyRequest - НОВЫЙ DTO для проверки кода
+// 🔥 VerifyRequest - DTO для проверки кода
 type VerifyRequest struct {
-	UUID string `json:"uuid" binding:"required"`
-	Code string `json:"code" binding:"required,len=6"`
+	ActivatedLink string `json:"activated_link" binding:"required"`
+	Code          string `json:"code" binding:"required,len=6"`
 }
 
 type RegisterResponse struct {
-	Message string `json:"message"`
-	UUID    string `json:"uuid"` // 🔥 Добавляем UUID в ответ
+	Message       string `json:"message"`
+	ActivatedLink string `json:"activated_link"` // 🔥 Меняем uuid на activated_link
 }
 
 type LoginResponse struct {
-	Message string `json:"message"`
-	UUID    string `json:"uuid"` // 🔥 Добавляем UUID в ответ
+	Message       string `json:"message"`
+	ActivatedLink string `json:"activated_link"` // 🔥 Меняем uuid на activated_link
 }
 
-// 🔥 VerifyResponse - НОВЫЙ DTO для ответа верификации
+// 🔥 VerifyResponse - DTO для ответа верификации
 type VerifyResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
@@ -93,5 +93,31 @@ type ProfileResponse struct {
 }
 
 type TokenResponse struct {
+	Message string `json:"message"`
+}
+
+// Добавляем в конец файла
+
+// ResetPasswordToken - модель для токена сброса пароля
+type ResetPasswordToken struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	UserID    uint      `gorm:"not null" json:"user_id"`
+	Token     string    `gorm:"size:255;uniqueIndex;not null" json:"token"`
+	ExpiresAt time.Time `gorm:"not null" json:"expires_at"`
+	Used      bool      `gorm:"default:false" json:"used"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// DTO для запросов сброса пароля
+type RequestResetPasswordRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+type ResetPasswordRequest struct {
+	Token       string `json:"token" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required,min=5"`
+}
+
+type ResetPasswordResponse struct {
 	Message string `json:"message"`
 }

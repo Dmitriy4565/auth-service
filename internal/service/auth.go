@@ -6,6 +6,8 @@ import (
 	"auth-service/internal/utils"
 	"errors"
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,8 +34,15 @@ type TokensResponse struct {
 // Register регистрирует нового пользователя и создает сессию верификации
 func (s *AuthService) Register(registerReq *models.RegisterRequest) (*models.RegisterResponse, error) {
 	// Проверяем, не существует ли уже пользователь с таким email
-	existingUser, _ := s.userRepo.GetUserByEmail(registerReq.Email)
-	if existingUser != nil {
+	existingUser, err := s.userRepo.GetUserByEmail(registerReq.Email)
+	if err != nil {
+		// Если это ошибка "пользователь не найден" - это нормально, продолжаем регистрацию
+		if err.Error() != "пользователь не найден" {
+			return nil, fmt.Errorf("ошибка проверки пользователя: %w", err)
+		}
+		// Пользователь не существует - продолжаем
+	} else if existingUser != nil {
+		// Пользователь уже существует
 		return nil, errors.New("пользователь с таким email уже существует")
 	}
 
@@ -57,8 +66,8 @@ func (s *AuthService) Register(registerReq *models.RegisterRequest) (*models.Reg
 		return nil, fmt.Errorf("ошибка при создании пользователя: %w", err)
 	}
 
-	// 🔥 ГЕНЕРИРУЕМ UUID И КОД
-	verificationUUID := uuid.New().String()
+	// Генерируем activated_link и код
+	activatedLink := uuid.New().String()
 	code, err := utils.GenerateTwoFactorCode()
 	if err != nil {
 		return nil, fmt.Errorf("ошибка генерации кода: %w", err)
@@ -66,7 +75,7 @@ func (s *AuthService) Register(registerReq *models.RegisterRequest) (*models.Reg
 
 	// Создаем сессию верификации
 	session := &models.VerificationSession{
-		UUID:      verificationUUID,
+		UUID:      activatedLink,
 		Email:     user.Email,
 		Code:      code,
 		Operation: "register",
@@ -82,9 +91,12 @@ func (s *AuthService) Register(registerReq *models.RegisterRequest) (*models.Reg
 		return nil, fmt.Errorf("ошибка отправки кода: %w", err)
 	}
 
+	// 🔥 ВАЖНО: НИКАКИХ ТОКЕНОВ ЗДЕСЬ НЕ ГЕНЕРИРУЕМ!
+	// Токены только после успешной верификации в VerifyCode
+
 	return &models.RegisterResponse{
-		Message: "Код подтверждения отправлен на вашу почту",
-		UUID:    verificationUUID, // 🔥 Отправляем UUID фронту
+		Message:       "Код подтверждения отправлен на вашу почту",
+		ActivatedLink: activatedLink,
 	}, nil
 }
 
@@ -101,8 +113,12 @@ func (s *AuthService) Login(loginReq *models.LoginRequest) (*models.LoginRespons
 		return nil, errors.New("неверный email или пароль")
 	}
 
-	// 🔥 ГЕНЕРИРУЕМ UUID И КОД
-	verificationUUID := uuid.New().String()
+	// 🔥 ИСПРАВЛЕНИЕ: Всегда требуем верификацию при логине
+	// Независимо от того, включен ли 2FA или нет
+	// (2FA включается автоматически после первой успешной верификации)
+
+	// Генерируем activated_link и код
+	activatedLink := uuid.New().String()
 	code, err := utils.GenerateTwoFactorCode()
 	if err != nil {
 		return nil, fmt.Errorf("ошибка генерации кода: %w", err)
@@ -110,7 +126,7 @@ func (s *AuthService) Login(loginReq *models.LoginRequest) (*models.LoginRespons
 
 	// Создаем сессию верификации
 	session := &models.VerificationSession{
-		UUID:      verificationUUID,
+		UUID:      activatedLink,
 		Email:     user.Email,
 		Code:      code,
 		Operation: "login",
@@ -127,15 +143,15 @@ func (s *AuthService) Login(loginReq *models.LoginRequest) (*models.LoginRespons
 	}
 
 	return &models.LoginResponse{
-		Message: "Код отправлен на вашу почту",
-		UUID:    verificationUUID, // 🔥 Отправляем UUID фронту
+		Message:       "Код отправлен на вашу почту",
+		ActivatedLink: activatedLink,
 	}, nil
 }
 
-// VerifyCode проверяет код по UUID и выдает токены
+// VerifyCode проверяет код по activated_link и выдает токены
 func (s *AuthService) VerifyCode(verifyReq *models.VerifyRequest) (*models.VerifyResponse, error) {
 	// Находим валидную сессию верификации
-	session, err := s.userRepo.GetValidVerificationSession(verifyReq.UUID, verifyReq.Code)
+	session, err := s.userRepo.GetValidVerificationSession(verifyReq.ActivatedLink, verifyReq.Code)
 	if err != nil {
 		return nil, errors.New("неверный или просроченный код")
 	}
@@ -146,7 +162,7 @@ func (s *AuthService) VerifyCode(verifyReq *models.VerifyRequest) (*models.Verif
 		return nil, errors.New("пользователь не найден")
 	}
 
-	// 🔥 ВКЛЮЧАЕМ 2FA ПОСЛЕ ПЕРВОЙ УСПЕШНОЙ ПРОВЕРКИ
+	// Включаем 2FA после первой успешной проверки
 	if !user.TwoFactorEnabled {
 		user.TwoFactorEnabled = true
 		user.TwoFactorVerified = true
@@ -156,7 +172,7 @@ func (s *AuthService) VerifyCode(verifyReq *models.VerifyRequest) (*models.Verif
 	}
 
 	// Помечаем сессию как использованную
-	if err := s.userRepo.MarkVerificationSessionAsUsed(verifyReq.UUID); err != nil {
+	if err := s.userRepo.MarkVerificationSessionAsUsed(verifyReq.ActivatedLink); err != nil {
 		return nil, fmt.Errorf("ошибка при обновлении сессии: %w", err)
 	}
 
@@ -211,6 +227,93 @@ func (s *AuthService) RefreshTokens(refreshToken string) (*TokensResponse, error
 	return s.generateTokens(user)
 }
 
+// Logout выполняет выход пользователя
+func (s *AuthService) Logout(refreshToken string) error {
+	return s.userRepo.DeleteSession(refreshToken)
+}
+
+// RequestResetPassword запрашивает сброс пароля
+func (s *AuthService) RequestResetPassword(req *models.RequestResetPasswordRequest) (*models.ResetPasswordResponse, error) {
+	// Проверяем существование пользователя
+	user, err := s.userRepo.GetUserByEmail(req.Email)
+	if err != nil {
+		// Для безопасности не раскрываем, существует ли пользователь
+		return &models.ResetPasswordResponse{
+			Message: "Если пользователь с таким email существует, инструкции по сбросу пароля отправлены на почту",
+		}, nil
+	}
+
+	// Генерируем UUID токен
+	token := uuid.New().String()
+	resetToken := &models.ResetPasswordToken{
+		UserID:    user.ID,
+		Token:     token,
+		ExpiresAt: time.Now().Add(1 * time.Hour), // Токен действителен 1 час
+		Used:      false,
+	}
+
+	// Сохраняем токен в БД
+	if err := s.userRepo.CreateResetPasswordToken(resetToken); err != nil {
+		return nil, fmt.Errorf("ошибка создания токена сброса: %w", err)
+	}
+
+	// Формируем ссылку для сброса
+	clientURL := os.Getenv("CLIENT_URL")
+	if clientURL == "" {
+		clientURL = "http://localhost:3000" // Значение по умолчанию
+	}
+	resetLink := fmt.Sprintf("%s/reset-password/%s", clientURL, token)
+
+	// Отправляем email с ссылкой
+	if err := s.emailService.SendResetPasswordEmail(user.Email, resetLink); err != nil {
+		return nil, fmt.Errorf("ошибка отправки email: %w", err)
+	}
+
+	return &models.ResetPasswordResponse{
+		Message: "Если пользователь с таким email существует, инструкции по сбросу пароля отправлены на почту",
+	}, nil
+}
+
+// ResetPassword сбрасывает пароль используя токен
+func (s *AuthService) ResetPassword(req *models.ResetPasswordRequest) (*models.ResetPasswordResponse, error) {
+	// Находим валидный токен
+	resetToken, err := s.userRepo.GetValidResetToken(req.Token)
+	if err != nil {
+		return nil, errors.New("невалидный или просроченный токен сброса пароля")
+	}
+
+	// Находим пользователя
+	user, err := s.userRepo.GetUserByID(resetToken.UserID)
+	if err != nil {
+		return nil, errors.New("пользователь не найден")
+	}
+
+	// Хешируем новый пароль
+	hashedPassword, err := utils.HashPassword(req.NewPassword)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка при хешировании пароля: %w", err)
+	}
+
+	// Обновляем пароль
+	if err := s.userRepo.UpdateUserPassword(user.ID, hashedPassword); err != nil {
+		return nil, fmt.Errorf("ошибка обновления пароля: %w", err)
+	}
+
+	// Помечаем токен как использованный
+	if err := s.userRepo.MarkResetTokenAsUsed(req.Token); err != nil {
+		return nil, fmt.Errorf("ошибка при обновлении токена: %w", err)
+	}
+
+	// Удаляем все сессии пользователя (выход со всех устройств)
+	if err := s.userRepo.DeleteAllUserSessions(user.ID); err != nil {
+		log.Printf("⚠️ Ошибка удаления сессий пользователя: %v", err)
+	}
+
+	return &models.ResetPasswordResponse{
+		Message: "Пароль успешно изменен",
+	}, nil
+}
+
 // generateTokens создает access и refresh tokens для пользователя
 func (s *AuthService) generateTokens(user *models.User) (*TokensResponse, error) {
 	// Генерируем access token
@@ -250,4 +353,5 @@ func (s *AuthService) cleanupExpiredData() {
 	s.userRepo.DeleteExpiredSessions()
 	s.userRepo.DeleteExpiredTwoFactorCodes()
 	s.userRepo.DeleteExpiredVerificationSessions()
+	s.userRepo.DeleteExpiredResetTokens()
 }

@@ -7,6 +7,7 @@ import (
 	"auth-service/internal/repository"
 	"auth-service/internal/service"
 	"auth-service/pkg/database"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -77,12 +78,14 @@ func main() {
 	{
 		auth.POST("/register", authHandler.Register)
 		auth.POST("/login", authHandler.Login)
-		auth.POST("/verifyEmail", authHandler.VerifyEmail) // 🔥 Роут для проверки кода
+		auth.POST("/verify-email", authHandler.VerifyEmail)
 		auth.GET("/refresh", authHandler.Refresh)
 		auth.POST("/logout", authHandler.Logout)
+		auth.POST("/requestToResetPassword", authHandler.RequestResetPassword)
+		auth.POST("/resetPassword", authHandler.ResetPassword)
 	}
 
-	// Защищенные маршруты (требуют авторизации) - ТОЛЬКО ОДИН РАЗ!
+	// Защищенные маршруты (требуют авторизации)
 	protected := router.Group("/auth")
 	protected.Use(middleware.AuthMiddleware())
 	{
@@ -106,4 +109,32 @@ func main() {
 	if err := router.Run(":" + cfg.Port); err != nil {
 		log.Fatal("❌ Ошибка запуска сервера:", err)
 	}
+
+	// 🔥 ТЕСТОВЫЙ ЭНДПОИНТ БЕЗ ВСЯКОЙ ЛОГИКИ
+	router.GET("/test-cookies", func(c *gin.Context) {
+		fmt.Println("🔍 ТЕСТ: /test-cookies вызван")
+
+		// Проверяем входящие куки
+		cookies := c.Request.Cookies()
+		fmt.Printf("🔍 ТЕСТ: Входящие куки: %v\n", cookies)
+
+		// Просто возвращаем текст
+		c.JSON(200, gin.H{
+			"message":     "Это тестовый endpoint",
+			"has_cookies": len(cookies) > 0,
+		})
+	})
+
+	router.POST("/test-register", func(c *gin.Context) {
+		fmt.Println("🔍 ТЕСТ: /test-register вызван")
+
+		// Принудительно очищаем ВСЕ возможные куки
+		c.SetCookie("access_token", "", -1, "/", "", false, true)
+		c.SetCookie("refresh_token", "", -1, "/", "", false, true)
+		c.SetCookie("session", "", -1, "/", "", false, true)
+
+		c.JSON(200, gin.H{
+			"message": "Тестовая регистрация - куки очищены",
+		})
+	})
 }

@@ -2,94 +2,100 @@ package repository
 
 import (
 	"auth-service/internal/models"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
 )
 
-// UserRepository предоставляет методы для работы с пользователями в БД
 type UserRepository struct {
 	db *gorm.DB
 }
 
-// NewUserRepository создает новый экземпляр UserRepository
 func NewUserRepository(db *gorm.DB) *UserRepository {
 	return &UserRepository{db: db}
 }
 
-// CreateUser создает нового пользователя в базе данных
+// User methods
 func (r *UserRepository) CreateUser(user *models.User) error {
 	return r.db.Create(user).Error
 }
 
-// GetUserByEmail находит пользователя по email
 func (r *UserRepository) GetUserByEmail(email string) (*models.User, error) {
 	var user models.User
 	err := r.db.Where("email = ?", email).First(&user).Error
 	if err != nil {
+		// Если пользователь не найден, возвращаем nil и понятную ошибку
+		if err == gorm.ErrRecordNotFound {
+			return nil, errors.New("пользователь не найден")
+		}
+		// Другие ошибки БД
 		return nil, err
 	}
 	return &user, nil
 }
 
-// GetUserByID находит пользователя по ID
 func (r *UserRepository) GetUserByID(id uint) (*models.User, error) {
 	var user models.User
 	err := r.db.First(&user, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &user, nil
+	return &user, err
 }
 
-// UpdateUser обновляет данные пользователя
 func (r *UserRepository) UpdateUser(user *models.User) error {
 	return r.db.Save(user).Error
 }
 
-// CreateSession создает новую сессию для refresh token
+// Session methods
 func (r *UserRepository) CreateSession(session *models.Session) error {
 	return r.db.Create(session).Error
 }
 
-// GetSessionByToken находит активную сессию по refresh token
-func (r *UserRepository) GetSessionByToken(refreshToken string) (*models.Session, error) {
+func (r *UserRepository) GetSessionByToken(token string) (*models.Session, error) {
 	var session models.Session
-	err := r.db.Where("refresh_token = ? AND expires_at > ?", refreshToken, time.Now()).First(&session).Error
-	if err != nil {
-		return nil, err
-	}
-	return &session, nil
+	err := r.db.Where("refresh_token = ? AND expires_at > ?", token, time.Now()).First(&session).Error
+	return &session, err
 }
 
-// DeleteSession удаляет сессию по refresh token
-func (r *UserRepository) DeleteSession(refreshToken string) error {
-	return r.db.Where("refresh_token = ?", refreshToken).Delete(&models.Session{}).Error
+func (r *UserRepository) DeleteSession(token string) error {
+	return r.db.Where("refresh_token = ?", token).Delete(&models.Session{}).Error
 }
 
-// DeleteExpiredSessions удаляет все просроченные сессии
 func (r *UserRepository) DeleteExpiredSessions() error {
 	return r.db.Where("expires_at < ?", time.Now()).Delete(&models.Session{}).Error
 }
 
-// CreateTwoFactorCode создает временный код для двухфакторной аутентификации
-func (r *UserRepository) CreateTwoFactorCode(tfCode *models.TwoFactorCode) error {
-	return r.db.Create(tfCode).Error
+func (r *UserRepository) DeleteAllUserSessions(userID uint) error {
+	return r.db.Where("user_id = ?", userID).Delete(&models.Session{}).Error
 }
 
-// Добавляем методы для работы с VerificationSession
+// TwoFactorCode methods
+func (r *UserRepository) CreateTwoFactorCode(code *models.TwoFactorCode) error {
+	return r.db.Create(code).Error
+}
+
+func (r *UserRepository) GetValidTwoFactorCode(userID uint, code string) (*models.TwoFactorCode, error) {
+	var twoFactorCode models.TwoFactorCode
+	err := r.db.Where("user_id = ? AND code = ? AND used = ? AND expires_at > ?", userID, code, false, time.Now()).First(&twoFactorCode).Error
+	return &twoFactorCode, err
+}
+
+func (r *UserRepository) MarkTwoFactorCodeAsUsed(id uint) error {
+	return r.db.Model(&models.TwoFactorCode{}).Where("id = ?", id).Update("used", true).Error
+}
+
+func (r *UserRepository) DeleteExpiredTwoFactorCodes() error {
+	return r.db.Where("expires_at < ?", time.Now()).Delete(&models.TwoFactorCode{}).Error
+}
+
+// VerificationSession methods
 func (r *UserRepository) CreateVerificationSession(session *models.VerificationSession) error {
 	return r.db.Create(session).Error
 }
 
 func (r *UserRepository) GetValidVerificationSession(uuid, code string) (*models.VerificationSession, error) {
 	var session models.VerificationSession
-	err := r.db.Where("uuid = ? AND code = ? AND used = false AND expires_at > ?",
-		uuid, code, time.Now()).First(&session).Error
-	if err != nil {
-		return nil, err
-	}
-	return &session, nil
+	err := r.db.Where("uuid = ? AND code = ? AND used = ? AND expires_at > ?", uuid, code, false, time.Now()).First(&session).Error
+	return &session, err
 }
 
 func (r *UserRepository) MarkVerificationSessionAsUsed(uuid string) error {
@@ -100,12 +106,25 @@ func (r *UserRepository) DeleteExpiredVerificationSessions() error {
 	return r.db.Where("expires_at < ?", time.Now()).Delete(&models.VerificationSession{}).Error
 }
 
-// MarkTwoFactorCodeAsUsed помечает код как использованный
-func (r *UserRepository) MarkTwoFactorCodeAsUsed(tfCodeID uint) error {
-	return r.db.Model(&models.TwoFactorCode{}).Where("id = ?", tfCodeID).Update("used", true).Error
+// ResetPasswordToken methods
+func (r *UserRepository) CreateResetPasswordToken(token *models.ResetPasswordToken) error {
+	return r.db.Create(token).Error
 }
 
-// DeleteExpiredTwoFactorCodes удаляет все просроченные коды 2FA
-func (r *UserRepository) DeleteExpiredTwoFactorCodes() error {
-	return r.db.Where("expires_at < ?", time.Now()).Delete(&models.TwoFactorCode{}).Error
+func (r *UserRepository) GetValidResetToken(token string) (*models.ResetPasswordToken, error) {
+	var resetToken models.ResetPasswordToken
+	err := r.db.Where("token = ? AND used = ? AND expires_at > ?", token, false, time.Now()).First(&resetToken).Error
+	return &resetToken, err
+}
+
+func (r *UserRepository) MarkResetTokenAsUsed(token string) error {
+	return r.db.Model(&models.ResetPasswordToken{}).Where("token = ?", token).Update("used", true).Error
+}
+
+func (r *UserRepository) UpdateUserPassword(userID uint, newPasswordHash string) error {
+	return r.db.Model(&models.User{}).Where("id = ?", userID).Update("password_hash", newPasswordHash).Error
+}
+
+func (r *UserRepository) DeleteExpiredResetTokens() error {
+	return r.db.Where("expires_at < ?", time.Now()).Delete(&models.ResetPasswordToken{}).Error
 }
