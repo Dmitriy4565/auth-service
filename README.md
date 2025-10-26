@@ -148,6 +148,6 @@ go build -o auth-service cmd/server/main.go
 ### 📄 Лицензия
 MIT License
 
-Production URL: http://77.110.105.228:8080
-Database: 77.110.105.228:5432
-Resend Domain: noreply@rossttelecom.ru
+Production URL: http://77.110.105.228:8080 
+Database: 77.110.105.228:5432 
+Resend Domain: noreply@rossttelecom.ru 
