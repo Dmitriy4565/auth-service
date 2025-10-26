@@ -25,7 +25,18 @@ func NewEmailService() *EmailService {
 		fromName = "Auth Service"
 	}
 
-	fmt.Printf("🔧 Инициализация Resend: %s...\n", getFirstChars(apiKey, 10))
+	fmt.Printf("🔧 Инициализация Resend:\n")
+	fmt.Printf("   API Key: %s...\n", getFirstChars(apiKey, 10))
+	fmt.Printf("   From Email: %s\n", fromEmail)
+	fmt.Printf("   From Name: %s\n", fromName)
+
+	// Проверяем что все настройки есть
+	if apiKey == "" {
+		fmt.Printf("❌ RESEND_API_KEY не установлен!\n")
+	}
+	if fromEmail == "" {
+		fmt.Printf("❌ RESEND_FROM_EMAIL не установлен!\n")
+	}
 
 	return &EmailService{
 		apiKey: apiKey,
@@ -35,28 +46,22 @@ func NewEmailService() *EmailService {
 }
 
 func (s *EmailService) Send2FACode(email, code string) error {
-	fmt.Printf("\n🎯 ОТПРАВКА 2FA КОДА ЧЕРЕЗ RESEND: %s -> %s\n", code, email)
+	fmt.Printf("\n🎯 ОТПРАВКА 2FA КОДА: %s -> %s\n", code, email)
+	fmt.Printf("   From: %s <%s>\n", s.name, s.from)
 
-	// Асинхронная отправка
-	go s.send2FACodeAsync(email, code)
-	return nil
+	// Синхронная отправка для дебага
+	return s.send2FACodeSync(email, code)
 }
 
 func (s *EmailService) SendResetPasswordEmail(email, resetLink string) error {
-	fmt.Printf("\n🔐 ОТПРАВКА ССЫЛКИ СБРОСА ЧЕРЕЗ RESEND: %s -> %s\n", email, resetLink)
+	fmt.Printf("\n🔐 ОТПРАВКА ССЫЛКИ СБРОСА: %s -> %s\n", email, resetLink)
+	fmt.Printf("   From: %s <%s>\n", s.name, s.from)
 
-	// Асинхронная отправка
-	go s.sendResetPasswordAsync(email, resetLink)
-	return nil
+	// Синхронная отправка для дебага
+	return s.sendResetPasswordSync(email, resetLink)
 }
 
-func (s *EmailService) send2FACodeAsync(email, code string) {
-	defer func() {
-		if r := recover(); r != nil {
-			fmt.Printf("❌ Паника при отправке 2FA: %v\n", r)
-		}
-	}()
-
+func (s *EmailService) send2FACodeSync(email, code string) error {
 	start := time.Now()
 	fmt.Printf("📧 [RESEND] Отправляем 2FA код на %s\n", email)
 
@@ -78,7 +83,7 @@ func (s *EmailService) send2FACodeAsync(email, code string) {
 		code,
 	)
 
-	err := s.sendEmailWithTimeout(
+	err := s.sendEmailResend(
 		email,
 		"Код двухфакторной аутентификации - Ростелеком Проекты",
 		htmlContent,
@@ -87,19 +92,15 @@ func (s *EmailService) send2FACodeAsync(email, code string) {
 
 	if err != nil {
 		fmt.Printf("❌ [RESEND] Ошибка отправки 2FA на %s: %v\n", email, err)
+		return err
 	} else {
 		fmt.Printf("✅ [RESEND] Письмо с кодом %s отправлено на %s за %v\n",
 			code, email, time.Since(start))
+		return nil
 	}
 }
 
-func (s *EmailService) sendResetPasswordAsync(email, resetLink string) {
-	defer func() {
-		if r := recover(); r != nil {
-			fmt.Printf("❌ Паника при отправке reset: %v\n", r)
-		}
-	}()
-
+func (s *EmailService) sendResetPasswordSync(email, resetLink string) error {
 	start := time.Now()
 	fmt.Printf("🔐 [RESEND] Отправляем reset ссылку на %s\n", email)
 
@@ -128,7 +129,7 @@ func (s *EmailService) sendResetPasswordAsync(email, resetLink string) {
 		resetLink,
 	)
 
-	err := s.sendEmailWithTimeout(
+	err := s.sendEmailResend(
 		email,
 		"Сброс пароля - Ростелеком Проекты",
 		htmlContent,
@@ -137,34 +138,11 @@ func (s *EmailService) sendResetPasswordAsync(email, resetLink string) {
 
 	if err != nil {
 		fmt.Printf("❌ [RESEND] Ошибка отправки reset на %s: %v\n", email, err)
+		return err
 	} else {
 		fmt.Printf("✅ [RESEND] Ссылка сброса отправлена на %s за %v\n",
 			email, time.Since(start))
-	}
-}
-
-func (s *EmailService) sendEmailWithTimeout(to, subject, html, text string) error {
-	// Создаем канал для результата
-	result := make(chan error, 1)
-
-	// Запускаем отправку в отдельной горутине
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				result <- fmt.Errorf("panic: %v", r)
-			}
-		}()
-
-		err := s.sendEmailResend(to, subject, html, text)
-		result <- err
-	}()
-
-	// Ждем с таймаутом 10 секунд
-	select {
-	case err := <-result:
-		return err
-	case <-time.After(10 * time.Second):
-		return fmt.Errorf("таймаут отправки письма")
+		return nil
 	}
 }
 
@@ -191,9 +169,15 @@ func (s *EmailService) sendEmailResend(to, subject, html, text string) error {
 		return fmt.Errorf("RESEND_FROM_EMAIL не установлен")
 	}
 
+	// Формируем from поле
+	fromField := s.name + " <" + s.from + ">"
+	fmt.Printf("📨 [RESEND] From поле: %s\n", fromField)
+	fmt.Printf("📨 [RESEND] To: %s\n", to)
+	fmt.Printf("📨 [RESEND] Subject: %s\n", subject)
+
 	// Prepare request
 	emailReq := ResendEmailRequest{
-		From:    s.name + " <" + s.from + ">",
+		From:    fromField,
 		To:      []string{to},
 		Subject: subject,
 		Html:    html,
@@ -205,6 +189,8 @@ func (s *EmailService) sendEmailResend(to, subject, html, text string) error {
 	if err != nil {
 		return fmt.Errorf("ошибка маршалинга JSON: %v", err)
 	}
+
+	fmt.Printf("📤 [RESEND] JSON данные: %s\n", string(jsonData))
 
 	// Create HTTP request
 	req, err := http.NewRequest("POST", "https://api.resend.com/emails", bytes.NewBuffer(jsonData))
@@ -218,7 +204,7 @@ func (s *EmailService) sendEmailResend(to, subject, html, text string) error {
 
 	// Send request
 	client := &http.Client{Timeout: 30 * time.Second}
-	fmt.Printf("📤 [RESEND] Отправляем запрос к API...\n")
+	fmt.Printf("🚀 [RESEND] Отправляем запрос к API...\n")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -233,18 +219,18 @@ func (s *EmailService) sendEmailResend(to, subject, html, text string) error {
 	}
 
 	fmt.Printf("📊 [RESEND] Status Code: %d\n", resp.StatusCode)
+	fmt.Printf("📄 [RESEND] Response Body: %s\n", string(body))
 
 	// Check status
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		var emailResp ResendEmailResponse
 		if err := json.Unmarshal(body, &emailResp); err == nil {
-			fmt.Printf("✅ [RESEND] ID письма: %s\n", emailResp.Id)
+			fmt.Printf("✅ [RESEND] Письмо отправлено! ID: %s\n", emailResp.Id)
 		} else {
-			fmt.Printf("✅ [RESEND] Письмо отправлено (не удалось распарсить ID)\n")
+			fmt.Printf("✅ [RESEND] Письмо отправлено!\n")
 		}
 		return nil
 	} else {
-		fmt.Printf("❌ [RESEND] Response Body: %s\n", string(body))
 		return fmt.Errorf("Resend error %d: %s", resp.StatusCode, string(body))
 	}
 }
