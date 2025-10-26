@@ -89,9 +89,11 @@ type VerifyResponse struct {
 }
 
 type ProfileResponse struct {
+	ID       uint   `json:"id"`
 	Name     string `json:"name"`
-	Lastname string `json:"lastname"`
+	Lastname string `jsoыn:"lastname"`
 	Email    string `json:"email"`
+	Role     string `json:"role"`
 }
 
 type TokenResponse struct {

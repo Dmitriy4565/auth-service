@@ -137,9 +137,11 @@ func (h *AuthHandler) Profile(c *gin.Context) {
 	}
 
 	profile := models.ProfileResponse{
+		ID:       user.ID,
 		Name:     user.Name,
 		Lastname: user.Lastname,
 		Email:    user.Email,
+		Role:     user.Role, // 👈 ДОБАВЬ ЭТУ СТРОКУ
 	}
 
 	c.JSON(http.StatusOK, profile)
