@@ -23,7 +23,7 @@ func Load() *Config {
 		DBPassword: getEnv("DB_PASSWORD", "password"),
 		DBName:     getEnv("DB_NAME", "auth_service"),
 		Port:       getEnv("PORT", "8080"),
-		JWTSecret:  getEnv("JWT_SECRET", "your-super-secret-key-change-in-production"),
+		JWTSecret:  getEnv("JWT_SECRET", ""),
 	}
 }
 
