@@ -1,50 +1,55 @@
 package service
 
 import (
-	"crypto/tls"
+	"bytes"
+	"encoding/json"
 	"fmt"
-	"net/smtp"
+	"io"
+	"net/http"
 	"os"
 	"time"
 )
 
 type EmailService struct {
-	host     string
-	port     string
-	username string
-	password string
-	from     string
+	apiKey string
+	from   string
+	name   string
 }
 
 func NewEmailService() *EmailService {
+	apiKey := os.Getenv("RESEND_API_KEY")
+	fromEmail := os.Getenv("RESEND_FROM_EMAIL")
+	fromName := os.Getenv("RESEND_FROM_NAME")
+
+	if fromName == "" {
+		fromName = "Auth Service"
+	}
+
+	fmt.Printf("🔧 Инициализация Resend: %s...\n", getFirstChars(apiKey, 10))
+
 	return &EmailService{
-		host:     os.Getenv("SMTP_HOST"),
-		port:     os.Getenv("SMTP_PORT"),
-		username: os.Getenv("SMTP_USERNAME"),
-		password: os.Getenv("SMTP_PASSWORD"),
-		from:     os.Getenv("SMTP_FROM"),
+		apiKey: apiKey,
+		from:   fromEmail,
+		name:   fromName,
 	}
 }
 
 func (s *EmailService) Send2FACode(email, code string) error {
-	fmt.Printf("\n🎯 ОТПРАВКА 2FA КОДА ЧЕРЕЗ YANDEX: %s -> %s\n", code, email)
+	fmt.Printf("\n🎯 ОТПРАВКА 2FA КОДА ЧЕРЕЗ RESEND: %s -> %s\n", code, email)
 
-	// ЗАПУСКАЕМ В ОТДЕЛЬНОЙ ГОРУТИНЕ - НЕ БЛОКИРУЕМ ОСНОВНОЙ ПОТОК
+	// Асинхронная отправка
 	go s.send2FACodeAsync(email, code)
-
-	return nil // сразу возвращаем успех
-}
-
-func (s *EmailService) SendResetPasswordEmail(email, resetLink string) error {
-	fmt.Printf("\n🔐 ОТПРАВКА ССЫЛКИ СБРОСА ЧЕРЕЗ YANDEX: %s -> %s\n", email, resetLink)
-
-	// ТОЖЕ В ОТДЕЛЬНОЙ ГОРУТИНЕ
-	go s.sendResetPasswordAsync(email, resetLink)
-
 	return nil
 }
 
-// Асинхронные методы (работают в фоне)
+func (s *EmailService) SendResetPasswordEmail(email, resetLink string) error {
+	fmt.Printf("\n🔐 ОТПРАВКА ССЫЛКИ СБРОСА ЧЕРЕЗ RESEND: %s -> %s\n", email, resetLink)
+
+	// Асинхронная отправка
+	go s.sendResetPasswordAsync(email, resetLink)
+	return nil
+}
+
 func (s *EmailService) send2FACodeAsync(email, code string) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -53,9 +58,8 @@ func (s *EmailService) send2FACodeAsync(email, code string) {
 	}()
 
 	start := time.Now()
-	fmt.Printf("📧 [YANDEX] Отправляем 2FA код на %s\n", email)
+	fmt.Printf("📧 [RESEND] Отправляем 2FA код на %s\n", email)
 
-	// HTML содержимое
 	htmlContent := fmt.Sprintf(`
 		<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
 			<h2 style="color: #1890ff;">Ростелеком Проекты</h2>
@@ -69,16 +73,22 @@ func (s *EmailService) send2FACodeAsync(email, code string) {
 			</p>
 		</div>`, code)
 
+	plainTextContent := fmt.Sprintf(
+		"Ростелеком Проекты\nВаш код подтверждения: %s\nКод действителен 10 минут",
+		code,
+	)
+
 	err := s.sendEmailWithTimeout(
 		email,
 		"Код двухфакторной аутентификации - Ростелеком Проекты",
 		htmlContent,
+		plainTextContent,
 	)
 
 	if err != nil {
-		fmt.Printf("❌ [YANDEX] Ошибка отправки 2FA на %s: %v\n", email, err)
+		fmt.Printf("❌ [RESEND] Ошибка отправки 2FA на %s: %v\n", email, err)
 	} else {
-		fmt.Printf("✅ [YANDEX] Письмо с кодом %s отправлено на %s за %v\n",
+		fmt.Printf("✅ [RESEND] Письмо с кодом %s отправлено на %s за %v\n",
 			code, email, time.Since(start))
 	}
 }
@@ -91,9 +101,8 @@ func (s *EmailService) sendResetPasswordAsync(email, resetLink string) {
 	}()
 
 	start := time.Now()
-	fmt.Printf("🔐 [YANDEX] Отправляем reset ссылку на %s\n", email)
+	fmt.Printf("🔐 [RESEND] Отправляем reset ссылку на %s\n", email)
 
-	// HTML содержимое
 	htmlContent := fmt.Sprintf(`
 <html>
 <body style="font-family: Arial, sans-serif;">
@@ -114,22 +123,27 @@ func (s *EmailService) sendResetPasswordAsync(email, resetLink string) {
 </body>
 </html>`, resetLink)
 
+	plainTextContent := fmt.Sprintf(
+		"Ростелеком Проекты\nСброс пароля\nДля сброса пароля перейдите по ссылке: %s\nСсылка действительна 1 час.",
+		resetLink,
+	)
+
 	err := s.sendEmailWithTimeout(
 		email,
 		"Сброс пароля - Ростелеком Проекты",
 		htmlContent,
+		plainTextContent,
 	)
 
 	if err != nil {
-		fmt.Printf("❌ [YANDEX] Ошибка отправки reset на %s: %v\n", email, err)
+		fmt.Printf("❌ [RESEND] Ошибка отправки reset на %s: %v\n", email, err)
 	} else {
-		fmt.Printf("✅ [YANDEX] Ссылка сброса отправлена на %s за %v\n",
+		fmt.Printf("✅ [RESEND] Ссылка сброса отправлена на %s за %v\n",
 			email, time.Since(start))
 	}
 }
 
-// Отправка с таймаутом
-func (s *EmailService) sendEmailWithTimeout(to, subject, html string) error {
+func (s *EmailService) sendEmailWithTimeout(to, subject, html, text string) error {
 	// Создаем канал для результата
 	result := make(chan error, 1)
 
@@ -141,85 +155,103 @@ func (s *EmailService) sendEmailWithTimeout(to, subject, html string) error {
 			}
 		}()
 
-		err := s.sendEmailSMTP(to, subject, html)
+		err := s.sendEmailResend(to, subject, html, text)
 		result <- err
 	}()
 
-	// Ждем с таймаутом 15 секунд
+	// Ждем с таймаутом 10 секунд
 	select {
 	case err := <-result:
 		return err
-	case <-time.After(15 * time.Second):
+	case <-time.After(10 * time.Second):
 		return fmt.Errorf("таймаут отправки письма")
 	}
 }
 
-// Базовая отправка через Яндекс SMTP
-func (s *EmailService) sendEmailSMTP(to, subject, html string) error {
-	// Проверяем настройки
-	if s.host == "" || s.username == "" || s.password == "" {
-		return fmt.Errorf("SMTP настройки не заполнены")
-	}
-
-	// Аутентификация
-	auth := smtp.PlainAuth("", s.username, s.password, s.host)
-
-	// Формируем сообщение
-	emailSubject := "Subject: " + subject + "\r\n"
-	mime := "MIME-version: 1.0;\r\nContent-Type: text/html; charset=\"UTF-8\";\r\n\r\n"
-	msg := []byte(emailSubject + mime + html)
-
-	fmt.Printf("📤 [YANDEX] Подключаемся к %s:%s...\n", s.host, s.port)
-
-	// Яндекс требует TLS, поэтому используем продвинутую отправку
-	err := s.sendWithTLS(to, msg, auth)
-	if err != nil {
-		return fmt.Errorf("ошибка отправки через Яндекс SMTP: %v", err)
-	}
-
-	fmt.Printf("✅ [YANDEX] Письмо успешно отправлено через Яндекс SMTP\n")
-	return nil
+// Resend API структуры
+type ResendEmailRequest struct {
+	From    string   `json:"from"`
+	To      []string `json:"to"`
+	Subject string   `json:"subject"`
+	Html    string   `json:"html"`
+	Text    string   `json:"text"`
 }
 
-func (s *EmailService) sendWithTLS(to string, msg []byte, auth smtp.Auth) error {
-	// Подключаемся к SMTP серверу
-	client, err := smtp.Dial(s.host + ":" + s.port)
+type ResendEmailResponse struct {
+	Id string `json:"id"`
+}
+
+func (s *EmailService) sendEmailResend(to, subject, html, text string) error {
+	// Проверяем настройки
+	if s.apiKey == "" {
+		return fmt.Errorf("RESEND_API_KEY не установлен")
+	}
+
+	if s.from == "" {
+		return fmt.Errorf("RESEND_FROM_EMAIL не установлен")
+	}
+
+	// Prepare request
+	emailReq := ResendEmailRequest{
+		From:    s.name + " <" + s.from + ">",
+		To:      []string{to},
+		Subject: subject,
+		Html:    html,
+		Text:    text,
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.Marshal(emailReq)
 	if err != nil {
-		return err
-	}
-	defer client.Close()
-
-	// STARTTLS (Яндекс требует шифрование)
-	if err = client.StartTLS(&tls.Config{ServerName: s.host}); err != nil {
-		return err
+		return fmt.Errorf("ошибка маршалинга JSON: %v", err)
 	}
 
-	// Аутентификация
-	if err = client.Auth(auth); err != nil {
-		return err
-	}
-
-	// Устанавливаем отправителя и получателя
-	if err = client.Mail(s.from); err != nil {
-		return err
-	}
-	if err = client.Rcpt(to); err != nil {
-		return err
-	}
-
-	// Отправляем данные
-	w, err := client.Data()
+	// Create HTTP request
+	req, err := http.NewRequest("POST", "https://api.resend.com/emails", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return err
-	}
-	_, err = w.Write(msg)
-	if err != nil {
-		return err
-	}
-	err = w.Close()
-	if err != nil {
-		return err
+		return fmt.Errorf("ошибка создания запроса: %v", err)
 	}
 
-	return client.Quit()
+	// Set headers
+	req.Header.Set("Authorization", "Bearer "+s.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	// Send request
+	client := &http.Client{Timeout: 30 * time.Second}
+	fmt.Printf("📤 [RESEND] Отправляем запрос к API...\n")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("ошибка HTTP запроса: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("ошибка чтения ответа: %v", err)
+	}
+
+	fmt.Printf("📊 [RESEND] Status Code: %d\n", resp.StatusCode)
+
+	// Check status
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		var emailResp ResendEmailResponse
+		if err := json.Unmarshal(body, &emailResp); err == nil {
+			fmt.Printf("✅ [RESEND] ID письма: %s\n", emailResp.Id)
+		} else {
+			fmt.Printf("✅ [RESEND] Письмо отправлено (не удалось распарсить ID)\n")
+		}
+		return nil
+	} else {
+		fmt.Printf("❌ [RESEND] Response Body: %s\n", string(body))
+		return fmt.Errorf("Resend error %d: %s", resp.StatusCode, string(body))
+	}
+}
+
+func getFirstChars(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
